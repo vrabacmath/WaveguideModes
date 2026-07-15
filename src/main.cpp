@@ -1,0 +1,122 @@
+// Entry point: a small dispatcher over the two line-defect band workflows.
+//
+//   line-defect-M     Subwavelength line-defect band via the multipole operator M^eps
+//                     (arXiv:2512.05370). Reliable for the subwavelength / monopole band.
+//                     -> workflows::run_line_defect_bands_M (src/workflows/line_defect_bands.cpp)
+//
+//   defect-capacitance  Higher-frequency (dipole) line-defect band via the frequency-dependent
+//                     capacitance matrix / exterior DtN map (arXiv:2605.27572), on a crystal
+//                     supercell. -> workflows::run_defect_capacitance_bands
+//                     (src/workflows/defect_capacitance_bands.cpp)
+//
+// Both write CSVs to the repository root; render them with `python src/plot.py`.
+//
+// Other experiments (SSH Fig 6.6 reproduction, Zak phase, full-wave cluster, Fabry-Perot finite
+// chain, channel-projected M, Gamma-X-M bulk bands, ...) were removed from this dispatcher to keep
+// it focused; they live in the git history -- see docs/archived_experiments.md for the map.
+
+#include <iostream>
+#include <string>
+
+#include "workflows/line_defect_bands.h"
+#include "workflows/defect_capacitance_bands.h"
+#include "workflows/crystal_matrix_bands.h"
+#include "workflows/patch_capacitance.h"
+
+namespace {
+
+void print_usage(const char* prog) {
+    std::cout
+        << "Usage: " << prog << " <mode> [options]\n\n"
+        << "Modes:\n"
+        << "  line-defect-M        Subwavelength line-defect band via the multipole operator M^eps.\n"
+        << "                       Optional: <num_alpha> [n_gauss]\n"
+        << "  defect-capacitance   Higher-frequency line-defect bands (m = 0..max_m) via the\n"
+        << "                       frequency-dependent capacitance matrix + exact transmission\n"
+        << "                       solve. Optional: <max_m> <n_rows> <points_per_disk>\n"
+        << "                       <num_alpha> [alpha_lo_frac] [alpha_hi_frac]\n"
+        << "  projected-bulk       Projected bulk spectrum over alpha_y for the line-defect\n"
+        << "                       diagrams. Optional: <num_alpha_x> <n_omega> <n_alpha_y>\n"
+        << "                       [omega_lo] [omega_hi]\n"
+        << "  line-defect-neumann  Higher-freq line-defect bands from M^eps, searched around the\n"
+        << "                       defect Neumann resonances (compare to defect-capacitance).\n"
+        << "                       Optional: <max_m> <num_alpha> <n_multipole>\n"
+        << "  crystal-matrix-bands Bulk M-Gamma-X-M bands from CrystalA and multipoleA.\n"
+        << "                       Optional: <points_per_segment> <n_omega> <points_per_disk> <n_multipole>\n"
+        << "  patch-capacitance    Real-space capacitance matrix of a finite, CENTERED patch of the\n"
+        << "                       line defect (no Floquet). Optional: <n_defect> <n_clad>\n"
+        << "                       <points_per_disk> <m_ang>\n"
+        << "  help, -h, --help     Show this message.\n";
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    const std::string mode = (argc > 1) ? argv[1] : "help";
+
+    if (mode == "line-defect-M") {
+        // Optional argv: num_alpha [n_gauss].
+        const int num_alpha = (argc > 2) ? std::stoi(argv[2]) : 30;
+        const int n_gauss = (argc > 3) ? std::stoi(argv[3]) : 21;
+        workflows::run_line_defect_bands_M(0.05, 0.04, 2e-4, 0.20, 0.27, 1.5, 3.5, 0.31,
+                                           num_alpha, n_gauss);
+        return 0;
+    }
+
+    if (mode == "defect-capacitance") {
+        // Optional argv: max_m [n_rows] [points_per_disk] [num_alpha] [alpha_lo] [alpha_hi].
+        const int max_m  = (argc > 2) ? std::stoi(argv[2]) : 2;
+        const int n_rows = (argc > 3) ? std::stoi(argv[3]) : 4;
+        const int npd    = (argc > 4) ? std::stoi(argv[4]) : 24;
+        const int nal    = (argc > 5) ? std::stoi(argv[5]) : 31;
+        const double alo = (argc > 6) ? std::stod(argv[6]) : 0.0;
+        const double ahi = (argc > 7) ? std::stod(argv[7]) : 1.0;
+        workflows::run_defect_capacitance_bands(0.35, 0.455, 0.05, max_m, n_rows, npd, nal,
+                                                alo, ahi);
+        return 0;
+    }
+
+    if (mode == "projected-bulk") {
+        // Optional argv: num_alpha_x [n_omega] [n_alpha_y] [omega_lo] [omega_hi].
+        const int nax      = (argc > 2) ? std::stoi(argv[2]) : 31;
+        const int n_omega  = (argc > 3) ? std::stoi(argv[3]) : 271;
+        const int nay      = (argc > 4) ? std::stoi(argv[4]) : 13;
+        const double wlo   = (argc > 5) ? std::stod(argv[5]) : 3.8;
+        const double whi   = (argc > 6) ? std::stod(argv[6]) : 9.2;
+        workflows::run_projected_bulk_bands(0.35, 0.05, 7, nax, nay, wlo, whi, n_omega, 1e-3);
+        return 0;
+    }
+
+    if (mode == "line-defect-neumann") {
+        // Optional argv: max_m [num_alpha] [n_multipole]. Same geometry as defect-capacitance.
+        const int max_m     = (argc > 2) ? std::stoi(argv[2]) : 2;
+        const int num_alpha = (argc > 3) ? std::stoi(argv[3]) : 31;
+        const int n_mult    = (argc > 4) ? std::stoi(argv[4]) : 0;   // 0 = auto
+        workflows::run_line_defect_bands_neumann(0.35, 0.455, 0.05, max_m, 10.0, num_alpha, 20, n_mult);
+        return 0;
+    }
+
+    if (mode == "crystal-matrix-bands" || mode == "m-gamma-x-m") {
+        // Optional argv: points_per_segment [n_omega] [points_per_disk] [n_multipole].
+        const int points_per_segment = (argc > 2) ? std::stoi(argv[2]) : 13;
+        const int n_omega            = (argc > 3) ? std::stoi(argv[3]) : 140;
+        const int points_per_disk    = (argc > 4) ? std::stoi(argv[4]) : 12;
+        const int n_multipole        = (argc > 5) ? std::stoi(argv[5]) : 8;
+        workflows::run_crystal_matrix_bands(0.35, 5.0e-2, points_per_disk, n_multipole,
+                                            points_per_segment, 0.05, 7.5, n_omega, 1.0e-3);
+        return 0;
+    }
+
+    if (mode == "patch-capacitance") {
+        // Optional argv: n_defect [n_clad] [points_per_disk] [m_ang].
+        const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 10;
+        const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 4;
+        const int npd      = (argc > 4) ? std::stoi(argv[4]) : 16;
+        const int m_ang    = (argc > 5) ? std::stoi(argv[5]) : 1;
+        workflows::run_patch_capacitance(0.35, 0.455, 0.05, m_ang, n_defect, n_clad, npd);
+        return 0;
+    }
+
+    print_usage(argv[0]);
+    return (mode == "help" || mode == "-h" || mode == "--help") ? 0 : 1;
+}
