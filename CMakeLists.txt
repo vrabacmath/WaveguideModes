@@ -62,6 +62,49 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/ext/eigen)
 # Optionally find Python3
 find_package(Python3 COMPONENTS Development)
 
+# AppleClang does not ship OpenMP headers or libraries with Xcode/Command Line
+# Tools. Help CMake find a locally installed libomp from Homebrew or MacPorts.
+if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    set(_OPENMP_APPLECLANG_CANDIDATES
+        "/opt/homebrew/opt/libomp"
+        "/usr/local/opt/libomp"
+        "/opt/local"
+    )
+
+    foreach(_OPENMP_PREFIX IN LISTS _OPENMP_APPLECLANG_CANDIDATES)
+        if(EXISTS "${_OPENMP_PREFIX}/include/omp.h")
+            set(_OPENMP_INCLUDE_DIR "${_OPENMP_PREFIX}/include")
+        elseif(EXISTS "${_OPENMP_PREFIX}/include/libomp/omp.h")
+            set(_OPENMP_INCLUDE_DIR "${_OPENMP_PREFIX}/include/libomp")
+        endif()
+
+        if(EXISTS "${_OPENMP_PREFIX}/lib/libomp.dylib")
+            set(_OPENMP_LIBRARY "${_OPENMP_PREFIX}/lib/libomp.dylib")
+        elseif(EXISTS "${_OPENMP_PREFIX}/lib/libomp/libomp.dylib")
+            set(_OPENMP_LIBRARY "${_OPENMP_PREFIX}/lib/libomp/libomp.dylib")
+        endif()
+
+        if(_OPENMP_INCLUDE_DIR AND _OPENMP_LIBRARY)
+            if(NOT OpenMP_CXX_FLAGS OR OpenMP_CXX_FLAGS MATCHES "NOTFOUND")
+                set(OpenMP_CXX_FLAGS "-Xclang -fopenmp" CACHE STRING "CXX compiler flags for OpenMP" FORCE)
+            endif()
+            if(NOT OpenMP_CXX_INCLUDE_DIR OR OpenMP_CXX_INCLUDE_DIR MATCHES "NOTFOUND")
+                set(OpenMP_CXX_INCLUDE_DIR "${_OPENMP_INCLUDE_DIR}" CACHE PATH "CXX include directory for OpenMP" FORCE)
+            endif()
+            if(NOT OpenMP_CXX_LIB_NAMES OR OpenMP_CXX_LIB_NAMES MATCHES "NOTFOUND")
+                set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "CXX OpenMP library names" FORCE)
+            endif()
+            if(NOT OpenMP_omp_LIBRARY OR OpenMP_omp_LIBRARY MATCHES "NOTFOUND")
+                set(OpenMP_omp_LIBRARY "${_OPENMP_LIBRARY}" CACHE FILEPATH "OpenMP library" FORCE)
+            endif()
+            break()
+        endif()
+
+        unset(_OPENMP_INCLUDE_DIR)
+        unset(_OPENMP_LIBRARY)
+    endforeach()
+endif()
+
 # Find OpenMP when available (optional for better cross-platform portability)
 find_package(OpenMP)
 
@@ -84,7 +127,7 @@ if(USE_UNITY_BUILD)
     set(CMAKE_UNITY_BUILD_BATCH_SIZE 4)
 endif()
 
-add_library(subwavelength_core STATIC
+add_library(waveguide_core STATIC
     src/boundary_mesh.cxx
     src/legendre_matrix.cxx
     src/spectral_operators.cxx
@@ -94,40 +137,43 @@ add_library(subwavelength_core STATIC
     src/workflows/defect_capacitance_bands.cpp
     src/workflows/crystal_matrix_bands.cpp
     src/workflows/patch_capacitance.cpp
+    src/workflows/bent_waveguide.cpp
+    src/workflows/bent_waveguide_patch.cpp
+    src/workflows/bent_waveguide_field.cpp
 )
 
 # Apply precompiled headers if enabled
 if(USE_PRECOMPILED_HEADERS)
-    target_precompile_headers(subwavelength_core PUBLIC include/pch.h)
+    target_precompile_headers(waveguide_core PUBLIC include/pch.h)
 endif()
 
 # Set include directories for the library
-target_include_directories(subwavelength_core
+target_include_directories(waveguide_core
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
 
 # Link dependencies to the library
-target_link_libraries(subwavelength_core
+target_link_libraries(waveguide_core
     PUBLIC
         Eigen3::Eigen
 #        Boost::boost
 )
 
 if(OpenMP_CXX_FOUND)
-    target_link_libraries(subwavelength_core PUBLIC OpenMP::OpenMP_CXX)
-    target_compile_definitions(subwavelength_core PUBLIC HAS_OPENMP)
+    target_link_libraries(waveguide_core PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(waveguide_core PUBLIC HAS_OPENMP)
 endif()
 
-target_compile_definitions(subwavelength_core PUBLIC PROJECT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(waveguide_core PUBLIC PROJECT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 if(USE_PRECOMPILED_HEADERS)
-    target_compile_definitions(subwavelength_core PUBLIC USE_PRECOMPILED_HEADERS)
+    target_compile_definitions(waveguide_core PUBLIC USE_PRECOMPILED_HEADERS)
 endif()
 
 # Set include directories for external headers
-target_include_directories(subwavelength_core
+target_include_directories(waveguide_core
     PUBLIC
         ${CMAKE_SOURCE_DIR}/ext/spectra/include
         ${CMAKE_SOURCE_DIR}/ext/bessel-library
@@ -136,8 +182,8 @@ target_include_directories(subwavelength_core
 
 # Optionally link Python if found
 if(Python3_FOUND)
-    target_link_libraries(subwavelength_core PUBLIC Python3::Python)
-    target_compile_definitions(subwavelength_core PUBLIC HAS_PYTHON)
+    target_link_libraries(waveguide_core PUBLIC Python3::Python)
+    target_compile_definitions(waveguide_core PUBLIC HAS_PYTHON)
 endif()
 
 # Create main executable
@@ -146,7 +192,7 @@ add_executable(WaveguideModes src/main.cpp)
 # Link libraries to executable
 target_link_libraries(WaveguideModes
     PRIVATE
-        subwavelength_core
+        waveguide_core
 #        fftw3
 )
 
@@ -156,7 +202,7 @@ endif()
 
 # Apply PCH to executable too
 if(USE_PRECOMPILED_HEADERS)
-    target_precompile_headers(WaveguideModes REUSE_FROM subwavelength_core)
+    target_precompile_headers(WaveguideModes REUSE_FROM waveguide_core)
 endif()
 
 # Set output directories

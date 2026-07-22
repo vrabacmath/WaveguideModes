@@ -44,18 +44,18 @@ std::vector<KPoint> make_m_gamma_x_m_path(int points_per_segment) {
     std::vector<KPoint> path;
     path.reserve(3 * (points_per_segment - 1) + 1);
 
-    auto append_leg = [&](int leg, Vector2d start, Vector2d end) {
+    auto append_shift = [&](int shift, Vector2d start, Vector2d end) {
         for (int i = 0; i < points_per_segment; ++i) {
-            if (leg > 0 && i == 0) continue;
+            if (shift > 0 && i == 0) continue;
             const double t = static_cast<double>(i) / static_cast<double>(points_per_segment - 1);
             const Vector2d alpha = (1.0 - t) * start + t * end;
-            path.push_back({leg + t, alpha.x(), alpha.y()});
+            path.push_back({shift + t, alpha.x(), alpha.y()});
         }
     };
 
-    append_leg(0, Vector2d(M_PI, M_PI), Vector2d(0.0, 0.0));   // M -> Gamma
-    append_leg(1, Vector2d(0.0, 0.0), Vector2d(M_PI, 0.0));    // Gamma -> X
-    append_leg(2, Vector2d(M_PI, 0.0), Vector2d(M_PI, M_PI));  // X -> M
+    append_shift(0, Vector2d(M_PI, M_PI), Vector2d(0.0, 0.0));   // M -> Gamma
+    append_shift(1, Vector2d(0.0, 0.0), Vector2d(M_PI, 0.0));    // Gamma -> X
+    append_shift(2, Vector2d(M_PI, 0.0), Vector2d(M_PI, M_PI));  // X -> M
     return path;
 }
 

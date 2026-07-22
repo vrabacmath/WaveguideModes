@@ -22,7 +22,7 @@ target_link_libraries(UnitTests
     PRIVATE
         gtest_main
         gmock
-        subwavelength_core
+        waveguide_core
 )
 
 # Set output directory for test executable

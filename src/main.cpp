@@ -22,6 +22,8 @@
 #include "workflows/defect_capacitance_bands.h"
 #include "workflows/crystal_matrix_bands.h"
 #include "workflows/patch_capacitance.h"
+#include "workflows/bent_waveguide.h"
+#include "workflows/bent_waveguide_field.h"
 
 namespace {
 
@@ -46,6 +48,13 @@ void print_usage(const char* prog) {
         << "  patch-capacitance    Real-space capacitance matrix of a finite, CENTERED patch of the\n"
         << "                       line defect (no Floquet). Optional: <n_defect> <n_clad>\n"
         << "                       <points_per_disk> <m_ang>\n"
+        << "  bent-waveguide       Real-space capacitance couplings of an L-shaped (90 deg bent)\n"
+        << "                       defect chain in a finite patch. Optional: <n_defect> <n_clad>\n"
+        << "                       <fringe> <points_per_disk> <m_ang>\n"
+        << "  bent-waveguide-field Field u(r) of one eigenmode of that patch, reconstructed from\n"
+        << "                       the capacitance eigenvector. Optional: <n_defect> <n_clad>\n"
+        << "                       <fringe> <points_per_disk> <m_ang> <mode_index> <grid_points>\n"
+        << "                       mode_index < 0 picks the most corner-localized mode.\n"
         << "  help, -h, --help     Show this message.\n";
 }
 
@@ -116,6 +125,31 @@ int main(int argc, char** argv) {
         workflows::run_patch_capacitance(0.35, 0.455, 0.05, m_ang, n_defect, n_clad, npd);
         return 0;
     }
+
+    if (mode == "bent-waveguide") {
+        // Optional argv: n_defect [n_clad] [points_per_disk] [m_ang].
+        const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 3;
+        const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 3;
+        const int fringe   = (argc > 4) ? std::stoi(argv[4]) : 1;
+        const int npd      = (argc > 5) ? std::stoi(argv[5]) : 16;
+        const int m_ang    = (argc > 6) ? std::stoi(argv[6]) : 1;
+        workflows::run_bent_waveguide(0.35, 0.455, 0.05, m_ang, n_defect, n_clad, fringe, npd);
+        return 0;
+    }
+
+    // if (mode == "bent-waveguide-field") {
+    //     // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [m_ang] [mode_index] [grid_points].
+    //     const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 3;
+    //     const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 3;
+    //     const int fringe   = (argc > 4) ? std::stoi(argv[4]) : 1;
+    //     const int npd      = (argc > 5) ? std::stoi(argv[5]) : 64;
+    //     const int m_ang    = (argc > 6) ? std::stoi(argv[6]) : 1;
+    //     const int mode_idx = (argc > 7) ? std::stoi(argv[7]) : -1;
+    //     const int ngrid    = (argc > 8) ? std::stoi(argv[8]) : 300;
+    //     workflows::run_bent_waveguide_field(0.35, 0.455, 0.05, m_ang, n_defect, n_clad, fringe,
+    //                                         npd, mode_idx, ngrid);
+    //     return 0;
+    // }
 
     print_usage(argv[0]);
     return (mode == "help" || mode == "-h" || mode == "--help") ? 0 : 1;

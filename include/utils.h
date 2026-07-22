@@ -8,7 +8,6 @@
 #include "spectral_operators.h"
 #include "tools.h"
 #include <chrono>
-#include "optimizer.h"
 #include "bessel-library.hpp"
 #include "q_function.h"
 
@@ -256,104 +255,6 @@ namespace ConvergenceTests{
         cout << Kstar - Kstar2 << endl;
     }
 
-    inline void draw_kernel() {
-        cout << "2D periodic Green's function test:\n"; //--------------------------------
-
-        double period = 1.;
-        Vector2d src(0.0, 1.0);
-        const int Nx = 121*4, Nz = 161;
-        const double Z = 2.0 * period;
-
-        std::vector<std::vector<double>> mag(Nz, std::vector<double>(Nx)),
-                realA(Nz, std::vector<double>(Nx)),
-                imagA(Nz, std::vector<double>(Nx)),
-                phase(Nz, std::vector<double>(Nx));
-
-        Vector2d a1(1., 0.), a2(0.5, -sqrt(3.) * 0.5);
-
-        for (int iz=0; iz<Nz; ++iz) {
-            double z = -Z + (2.0*Z) * (double(iz) / (Nz-1));
-            for (int ix=0; ix<Nx; ++ix) {
-                double x = 4 * period * (double(ix) / (Nx-1)); // [0,d]
-                Vector2d r(x, z);
-//                auto G = Kernels::dir_helmholtz_2D_periodic(2.0, -1.0, r, src, period, sqrt(M_PI), 10);
-                auto G = Kernels::helmholtz_2D_biperiodic(2.0, Vector2d(0.1, 0.1), r, src, a1, a2);
-                realA[iz][ix] = std::real(G);
-                imagA[iz][ix] = std::imag(G);
-                mag[iz][ix]   = std::abs(G);
-                phase[iz][ix] = std::atan2(std::imag(G), std::real(G));
-
-//                cout << G * exp(-cpxd(0,1.) * Vector2d(0.1, 0.1).dot(a2 + a1)) << " "
-//                << Kernels::helmholtz_2D_biperiodic(2.0, Vector2d(0.1, 0.1), r + a2 + a1, src, a1, a2) << endl;
-            }
-            Tools::print_stage_progress("Drawing solution rows", iz + 1, Nz);
-        }
-        Tools::finish_progress_line();
-
-        dump_csv("G_mag.csv",   mag);
-        dump_csv("G_real.csv",  realA);
-        dump_csv("G_imag.csv",  imagA);
-        dump_csv("G_phase.csv", phase);
-    }
-
-    inline void draw_solution(VectorXcd solution, cpxd omega, BoundaryMesh &mesh, double period, cpxd k, cpxd k_b) {
-        cout << "2D periodic Green's function test:\n"; //--------------------------------
-
-        assert(solution.size() == 2 * mesh.get_num_segments());
-
-        Vector2d src(0.0, 1.0);
-        const int Nx = 242, Nz = 242;
-
-        std::vector<std::vector<double>> mag(Nz, std::vector<double>(Nx)),
-                realA(Nz, std::vector<double>(Nx)),
-                imagA(Nz, std::vector<double>(Nx)),
-                phase(Nz, std::vector<double>(Nx));
-
-        for (int iz=0; iz<Nz; ++iz) {
-            double z = -period + 2. * period * (double(iz) / (Nz-1));
-            for (int ix=0; ix<Nx; ++ix) {
-                double x = -period/2. + period * (double(ix) / (Nx-1)); // [0,d]
-                Vector2d r(x, z);
-                cpxd G = 0.0;
-                double Gre = 0.0, Gim = 0.0;
-                const int N = mesh.get_num_segments();
-                if ((x * x + (z - 3.) * (z - 3.) < 1.) || (x * x + (z - 6.) * (z - 6.) < 1.) || (x * x + (z - 9.) * (z - 9.) < 1.) ||
-                        (x * x + (z + 3.) * (z + 3.) < 1.) || (x * x + (z + 6.) * (z + 6.) < 1.) || (x * x + (z + 9.) * (z + 9.) < 1.)) {
-#pragma omp parallel for reduction(+:Gre, Gim)
-                    for (int j = 0; j < N; j++) {
-                        Vector2d r_j = mesh.get_vertex(j).point;
-                        cpxd contrib = solution(j) * Kernels::dir_helmholtz_2D_periodic(k_b, 0.0, r, r_j, period) * mesh.get_vertex(j).sigma;
-                        Gre += std::real(contrib);
-                        Gim += std::imag(contrib);
-                    }
-                } else {
-#pragma omp parallel for reduction(+:Gre, Gim)
-                    for (int j = N; j < 2 * N; j++) {
-                        int local_idx = j - N;
-                        Vector2d r_j = mesh.get_vertex(local_idx).point;
-                        cpxd contrib = solution(j) * Kernels::dir_helmholtz_2D_periodic(k, 0.0, r, r_j, period)
-                                       * mesh.get_vertex(local_idx).sigma;
-                        Gre += std::real(contrib);
-                        Gim += std::imag(contrib);
-                    }
-
-                }
-                G = cpxd(Gre, Gim);
-                realA[iz][ix] = std::real(G);
-                imagA[iz][ix] = std::imag(G);
-                mag[iz][ix]   = std::abs(G);
-                phase[iz][ix] = std::atan2(std::imag(G), std::real(G));
-            }
-            Tools::print_stage_progress("Drawing solution rows", iz + 1, Nz);
-        }
-        Tools::finish_progress_line();
-
-        dump_csv("G_mag.csv",   mag);
-        dump_csv("G_real.csv",  realA);
-        dump_csv("G_imag.csv",  imagA);
-        dump_csv("G_phase.csv", phase);
-    }
-
     inline void convergence_with_period() {
         int NN = 100;
         vector<double> errorsK, errorsS;
@@ -466,22 +367,6 @@ namespace ConvergenceTests{
         cout << c2 << endl;
     }
 
-    inline void draw_mesh(const BoundaryMesh& mesh, const std::string& filename) {
-        std::vector<double> pointsx, pointsy, tanx, tany, nx, ny;
-        for (int i = 0; i < mesh.get_num_segments(); i++) {
-            Vector2d p = mesh.get_vertex(i).point;
-            pointsx.push_back(p.x());
-            pointsy.push_back(p.y());
-            Vector2d t = mesh.get_vertex(i).tangent;
-            tanx.push_back(t.x() * mesh.get_vertex(i).tnorm);
-            tany.push_back(t.y() * mesh.get_vertex(i).tnorm);
-            Vector2d n = mesh.get_vertex(i).normal;
-            nx.push_back(n.x());
-            ny.push_back(n.y());
-        }
-        Tools::dump_csv(filename, {pointsx, pointsy, tanx, tany, nx, ny});
-    }
-
    inline void Kstar_cvg() {
        vector<double> eigenvaluesdb, eigenvaluesdb3;
        MatrixXcd Kstar, Kstar3;
@@ -521,6 +406,123 @@ namespace ConvergenceTests{
        }
 
        Tools::dump_csv("eigenvalues_double_bubble2.csv", {eigenvaluesdb, eigenvaluesdb3});
+    }
+} // namespace ConvergenceTests
+
+namespace Utils {
+
+    inline void draw_kernel() {
+        cout << "2D periodic Green's function test:\n"; //--------------------------------
+
+        double period = 1.;
+        Vector2d src(0.0, 1.0);
+        const int Nx = 121*4, Nz = 161;
+        const double Z = 2.0 * period;
+
+        std::vector<std::vector<double>> mag(Nz, std::vector<double>(Nx)),
+                realA(Nz, std::vector<double>(Nx)),
+                imagA(Nz, std::vector<double>(Nx)),
+                phase(Nz, std::vector<double>(Nx));
+
+        Vector2d a1(1., 0.), a2(0.5, -sqrt(3.) * 0.5);
+
+        for (int iz=0; iz<Nz; ++iz) {
+            double z = -Z + (2.0*Z) * (double(iz) / (Nz-1));
+            for (int ix=0; ix<Nx; ++ix) {
+                double x = 4 * period * (double(ix) / (Nx-1)); // [0,d]
+                Vector2d r(x, z);
+//                auto G = Kernels::dir_helmholtz_2D_periodic(2.0, -1.0, r, src, period, sqrt(M_PI), 10);
+                auto G = Kernels::helmholtz_2D_biperiodic(2.0, Vector2d(0.1, 0.1), r, src, a1, a2);
+                realA[iz][ix] = std::real(G);
+                imagA[iz][ix] = std::imag(G);
+                mag[iz][ix]   = std::abs(G);
+                phase[iz][ix] = std::atan2(std::imag(G), std::real(G));
+
+//                cout << G * exp(-cpxd(0,1.) * Vector2d(0.1, 0.1).dot(a2 + a1)) << " "
+//                << Kernels::helmholtz_2D_biperiodic(2.0, Vector2d(0.1, 0.1), r + a2 + a1, src, a1, a2) << endl;
+            }
+            Tools::print_stage_progress("Drawing solution rows", iz + 1, Nz);
+        }
+        Tools::finish_progress_line();
+
+        dump_csv("G_mag.csv",   mag);
+        dump_csv("G_real.csv",  realA);
+        dump_csv("G_imag.csv",  imagA);
+        dump_csv("G_phase.csv", phase);
+    }
+
+    inline void draw_solution(VectorXcd solution, cpxd omega, BoundaryMesh &mesh, double period, cpxd k, cpxd k_b) {
+        cout << "2D periodic Green's function test:\n"; //--------------------------------
+
+        assert(solution.size() == 2 * mesh.get_num_segments());
+
+        Vector2d src(0.0, 1.0);
+        const int Nx = 242, Nz = 242;
+
+        std::vector<std::vector<double>> mag(Nz, std::vector<double>(Nx)),
+                realA(Nz, std::vector<double>(Nx)),
+                imagA(Nz, std::vector<double>(Nx)),
+                phase(Nz, std::vector<double>(Nx));
+
+        for (int iz=0; iz<Nz; ++iz) {
+            double z = -period + 2. * period * (double(iz) / (Nz-1));
+            for (int ix=0; ix<Nx; ++ix) {
+                double x = -period/2. + period * (double(ix) / (Nx-1)); // [0,d]
+                Vector2d r(x, z);
+                cpxd G = 0.0;
+                double Gre = 0.0, Gim = 0.0;
+                const int N = mesh.get_num_segments();
+                if ((x * x + (z - 3.) * (z - 3.) < 1.) || (x * x + (z - 6.) * (z - 6.) < 1.) || (x * x + (z - 9.) * (z - 9.) < 1.) ||
+                        (x * x + (z + 3.) * (z + 3.) < 1.) || (x * x + (z + 6.) * (z + 6.) < 1.) || (x * x + (z + 9.) * (z + 9.) < 1.)) {
+#pragma omp parallel for reduction(+:Gre, Gim)
+                    for (int j = 0; j < N; j++) {
+                        Vector2d r_j = mesh.get_vertex(j).point;
+                        cpxd contrib = solution(j) * Kernels::dir_helmholtz_2D_periodic(k_b, 0.0, r, r_j, period) * mesh.get_vertex(j).sigma;
+                        Gre += std::real(contrib);
+                        Gim += std::imag(contrib);
+                    }
+                } else {
+#pragma omp parallel for reduction(+:Gre, Gim)
+                    for (int j = N; j < 2 * N; j++) {
+                        int local_idx = j - N;
+                        Vector2d r_j = mesh.get_vertex(local_idx).point;
+                        cpxd contrib = solution(j) * Kernels::dir_helmholtz_2D_periodic(k, 0.0, r, r_j, period)
+                                       * mesh.get_vertex(local_idx).sigma;
+                        Gre += std::real(contrib);
+                        Gim += std::imag(contrib);
+                    }
+
+                }
+                G = cpxd(Gre, Gim);
+                realA[iz][ix] = std::real(G);
+                imagA[iz][ix] = std::imag(G);
+                mag[iz][ix]   = std::abs(G);
+                phase[iz][ix] = std::atan2(std::imag(G), std::real(G));
+            }
+            Tools::print_stage_progress("Drawing solution rows", iz + 1, Nz);
+        }
+        Tools::finish_progress_line();
+
+        dump_csv("G_mag.csv",   mag);
+        dump_csv("G_real.csv",  realA);
+        dump_csv("G_imag.csv",  imagA);
+        dump_csv("G_phase.csv", phase);
+    }
+
+    inline void draw_mesh(const BoundaryMesh& mesh, const std::string& filename) {
+        std::vector<double> pointsx, pointsy, tanx, tany, nx, ny;
+        for (int i = 0; i < mesh.get_num_segments(); i++) {
+            Vector2d p = mesh.get_vertex(i).point;
+            pointsx.push_back(p.x());
+            pointsy.push_back(p.y());
+            Vector2d t = mesh.get_vertex(i).tangent;
+            tanx.push_back(t.x() * mesh.get_vertex(i).tnorm);
+            tany.push_back(t.y() * mesh.get_vertex(i).tnorm);
+            Vector2d n = mesh.get_vertex(i).normal;
+            nx.push_back(n.x());
+            ny.push_back(n.y());
+        }
+        Tools::dump_csv(filename, {pointsx, pointsy, tanx, tany, nx, ny});
     }
 
     /**
