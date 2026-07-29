@@ -254,7 +254,7 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
                                    int max_m, double window_factor, int num_alpha,
                                    int n_gauss, int n_multipole, double sub_lo, double sub_hi) {
     const cpxd v = 1.0, v_b = 1.0;
-    const double contour = 1e-3;       // small Im(omega) to sharpen the sigma_min dips
+    const double contour = 1e-5;       // small Im(omega): enough regularization without merging close dips
     const double dir_tol = 0.06;       // exclude within this of an exterior Dirichlet eigenvalue
     const double gap_threshold = 0.25; // gap if min_ay(sigma_min A) > this * median_ay (see in_gap)
 
@@ -317,23 +317,25 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
 
         for (int m = 0; m <= max_m; ++m) {
             const double omega0 = neumann_zero(m) / defect_radius;  // v_b = 1
-            const double W = window_factor * delta;
+            const double W = window_factor * delta * std::max(1, m);
             const double lo = omega0 - W, hi = omega0 + W;
             const int mult = (m == 0) ? 1 : 2;
 
             // coarse scan of sigma_min(M), blanking the exterior-Dirichlet neighbourhoods
             std::vector<double> ws, ss;
             std::vector<int> minima;
-            auto scan_window = [&](int ns) {
+            auto scan_window = [&](double scan_lo, double scan_hi, int ns) {
                 ws.resize(ns);
                 ss.resize(ns);
                 for (int i = 0; i < ns; ++i) {
-                    ws[i] = lo + (hi - lo) * i / (ns - 1);
+                    ws[i] = scan_lo + (scan_hi - scan_lo) * i / (ns - 1);
                     ss[i] = near_dirichlet(ws[i], dir_radii, dir_tol)
                                 ? std::numeric_limits<double>::infinity()
                                 : defect_sigma(ws[i], alpha_x);
                 }
-                // interior local minima, deepest first, up to the expected multiplicity
+                // Interior local minima, deepest first, up to the expected multiplicity. The
+                // Neumann windows are intentionally wide enough that physical branches should not
+                // be accepted from a monotone boundary value.
                 minima.clear();
                 for (int i = 1; i + 1 < ns; ++i)
                     if (std::isfinite(ss[i]) && ss[i] < ss[i - 1] && ss[i] <= ss[i + 1])
@@ -342,20 +344,28 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
                           [&](int x, int y) { return ss[x] < ss[y]; });
                 if (static_cast<int>(minima.size()) > mult) minima.resize(mult);
             };
-            scan_window(61);
+            scan_window(lo, hi, 61);
             // A branch dip can be narrower than the coarse spacing and sit barely below the
-            // high-order contamination floor (this loses the lower dipole branch over whole
-            // alpha stretches); when fewer than `mult` dips show up, rescan 3x denser.
-            if (static_cast<int>(minima.size()) < mult) scan_window(181);
+            // high-order contamination floor; when fewer than `mult` dips show up, rescan denser.
+            if (static_cast<int>(minima.size()) < mult) scan_window(lo, hi, 301);
+            // Quadrupole branches can nearly touch. When they merge into one coarse valley, zoom
+            // around that valley instead of rescanning the whole resonance window.
+            if (m >= 2 && static_cast<int>(minima.size()) < mult && !minima.empty()) {
+                const double center = ws[minima.front()];
+                const double local_radius = std::min(0.003, 0.2 * W);
+                scan_window(std::max(lo, center - local_radius), std::min(hi, center + local_radius), 401);
+            }
 
             std::vector<double> accepted;
             for (int idx : minima) {
+                const int left_idx = std::max(0, idx - 1);
+                const int right_idx = std::min(static_cast<int>(ws.size()) - 1, idx + 1);
                 const auto refined = fine_scan_golden(
-                    [&](double w) { return defect_sigma(w, alpha_x); }, ws[idx - 1], ws[idx + 1]);
+                    [&](double w) { return defect_sigma(w, alpha_x); }, ws[left_idx], ws[right_idx]);
                 const double wr = refined.first, sr = refined.second;
                 // two coarse minima can refine into the same dip on a flat floor -- keep one
                 const bool dup = std::any_of(accepted.begin(), accepted.end(),
-                                             [&](double w) { return std::abs(w - wr) < 1e-4; });
+                                             [&](double w) { return std::abs(w - wr) < 5e-5; });
                 if (dup) continue;
                 accepted.push_back(wr);
                 const int gap = in_gap(wr, alpha_x) ? 1 : 0;
@@ -367,7 +377,7 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
         // subwavelength (static-monopole, labelled m=-1) defect band: the deepest in-gap,
         // non-Dirichlet dip of sigma_min(M) over [sub_lo, sub_hi].
         if (do_sub) {
-            const int nss = 80;
+            const int nss = 120;
             std::vector<double> ws(nss), ss(nss);
             for (int i = 0; i < nss; ++i) {
                 ws[i] = sub_lo + (sub_hi - sub_lo) * i / (nss - 1);

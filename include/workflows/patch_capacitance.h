@@ -37,6 +37,7 @@ void run_patch_capacitance(double radius = 0.35,
                            int m_ang = 1,
                            int n_defect = 10,
                            int n_clad = 4,
+                           int fringe = 1,
                            int points_per_disk = 16);
 
 }  // namespace workflows

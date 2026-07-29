@@ -48,6 +48,19 @@ void run_bent_waveguide(double radius, double defect_radius, double delta,
     }
     out_c.close();
 
+    double row_sym = 0.0, row_scale = 0.0;
+    for (int q = 0; q < n_main; ++q) {
+        const int r = 2 * center - q;
+        if (r < 0 || r >= n_main) continue;
+        const double left = p.C.block(modes * center, modes * q, modes, modes).norm();
+        const double right = p.C.block(modes * center, modes * r, modes, modes).norm();
+        row_sym = std::max(row_sym, std::abs(left - right));
+        row_scale = std::max(row_scale, std::max(left, right));
+    }
+    std::cout << "  reflection symmetry in corner row | |C_l|_F - |C_-l|_F |_max = "
+              << row_sym << "  (relative " << (row_scale > 0.0 ? row_sym / row_scale : 0.0)
+              << ")\n";
+
     // --- finite defect resonances: eigenvalues of the full C matrix ----------------------
     // Sort a permutation rather than the eigenvalue array in place: sorting `lam` directly would
     // silently break its correspondence with es.eigenvectors(), which run_bent_waveguide_field

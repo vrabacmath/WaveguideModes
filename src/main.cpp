@@ -24,6 +24,7 @@
 #include "workflows/patch_capacitance.h"
 #include "workflows/bent_waveguide.h"
 #include "workflows/bent_waveguide_field.h"
+#include "workflows/bent_waveguide_exact.h"
 
 namespace {
 
@@ -39,10 +40,10 @@ void print_usage(const char* prog) {
         << "                       <num_alpha> [alpha_lo_frac] [alpha_hi_frac]\n"
         << "  projected-bulk       Projected bulk spectrum over alpha_y for the line-defect\n"
         << "                       diagrams. Optional: <num_alpha_x> <n_omega> <n_alpha_y>\n"
-        << "                       [omega_lo] [omega_hi]\n"
+        << "                       [omega_lo] [omega_hi] [delta] [omega_imag]\n"
         << "  line-defect-neumann  Higher-freq line-defect bands from M^eps, searched around the\n"
         << "                       defect Neumann resonances (compare to defect-capacitance).\n"
-        << "                       Optional: <max_m> <num_alpha> <n_multipole>\n"
+        << "                       Optional: <max_m> <num_alpha> <n_multipole> <window_factor>\n"
         << "  crystal-matrix-bands Bulk M-Gamma-X-M bands from CrystalA and multipoleA.\n"
         << "                       Optional: <points_per_segment> <n_omega> <points_per_disk> <n_multipole>\n"
         << "  patch-capacitance    Real-space capacitance matrix of a finite, CENTERED patch of the\n"
@@ -55,6 +56,11 @@ void print_usage(const char* prog) {
         << "                       the capacitance eigenvector. Optional: <n_defect> <n_clad>\n"
         << "                       <fringe> <points_per_disk> <m_ang> <mode_index> <grid_points>\n"
         << "                       mode_index < 0 picks the most corner-localized mode.\n"
+        << "  bent-waveguide-exact Exact resonances omega* of that patch: Muller's method on the\n"
+        << "                       full transmission operator A(omega), seeded by the capacitance\n"
+        << "                       predictions; draws the null-vector field. Optional: <n_defect>\n"
+        << "                       <n_clad> <fringe> <points_per_disk> <m_ang> <mode_index>\n"
+        << "                       <grid_points> <delta>\n"
         << "  help, -h, --help     Show this message.\n";
 }
 
@@ -67,7 +73,7 @@ int main(int argc, char** argv) {
         // Optional argv: num_alpha [n_gauss].
         const int num_alpha = (argc > 2) ? std::stoi(argv[2]) : 30;
         const int n_gauss = (argc > 3) ? std::stoi(argv[3]) : 21;
-        workflows::run_line_defect_bands_M(0.05, 0.04, 2e-4, 0.20, 0.27, 1.5, 3.5, 0.31,
+        workflows::run_line_defect_bands_M(0.35, 0.455, 0.001, 0.20, 0.27, 1.5, 3.5, 0.31,
                                            num_alpha, n_gauss);
         return 0;
     }
@@ -76,32 +82,36 @@ int main(int argc, char** argv) {
         // Optional argv: max_m [n_rows] [points_per_disk] [num_alpha] [alpha_lo] [alpha_hi].
         const int max_m  = (argc > 2) ? std::stoi(argv[2]) : 2;
         const int n_rows = (argc > 3) ? std::stoi(argv[3]) : 4;
-        const int npd    = (argc > 4) ? std::stoi(argv[4]) : 24;
-        const int nal    = (argc > 5) ? std::stoi(argv[5]) : 31;
+        const int npd    = (argc > 4) ? std::stoi(argv[4]) : 64;
+        const int nal    = (argc > 5) ? std::stoi(argv[5]) : 61;
         const double alo = (argc > 6) ? std::stod(argv[6]) : 0.0;
         const double ahi = (argc > 7) ? std::stod(argv[7]) : 1.0;
-        workflows::run_defect_capacitance_bands(0.35, 0.455, 0.05, max_m, n_rows, npd, nal,
+        workflows::run_defect_capacitance_bands(0.35, 0.455, 0.001, max_m, n_rows, npd, nal,
                                                 alo, ahi);
         return 0;
     }
 
     if (mode == "projected-bulk") {
-        // Optional argv: num_alpha_x [n_omega] [n_alpha_y] [omega_lo] [omega_hi].
+        // Optional argv: num_alpha_x [n_omega] [n_alpha_y] [omega_lo] [omega_hi] [delta] [omega_imag].
         const int nax      = (argc > 2) ? std::stoi(argv[2]) : 31;
-        const int n_omega  = (argc > 3) ? std::stoi(argv[3]) : 271;
+        const int n_omega  = (argc > 3) ? std::stoi(argv[3]) : 500;
         const int nay      = (argc > 4) ? std::stoi(argv[4]) : 13;
-        const double wlo   = (argc > 5) ? std::stod(argv[5]) : 3.8;
-        const double whi   = (argc > 6) ? std::stod(argv[6]) : 9.2;
-        workflows::run_projected_bulk_bands(0.35, 0.05, 7, nax, nay, wlo, whi, n_omega, 1e-3);
+        const double wlo   = (argc > 5) ? std::stod(argv[5]) : 0.0;
+        const double whi   = (argc > 6) ? std::stod(argv[6]) : 8.0;
+        const double delta = (argc > 7) ? std::stod(argv[7]) : 0.001;
+        const double oimag = (argc > 8) ? std::stod(argv[8]) : 1e-4;
+        workflows::run_projected_bulk_bands(0.35, delta, 7, nax, nay, wlo, whi, n_omega, oimag);
         return 0;
     }
 
     if (mode == "line-defect-neumann") {
-        // Optional argv: max_m [num_alpha] [n_multipole]. Same geometry as defect-capacitance.
+        // Optional argv: max_m [num_alpha] [n_multipole] [window_factor].
+        // Same geometry as defect-capacitance.
         const int max_m     = (argc > 2) ? std::stoi(argv[2]) : 2;
         const int num_alpha = (argc > 3) ? std::stoi(argv[3]) : 31;
         const int n_mult    = (argc > 4) ? std::stoi(argv[4]) : 0;   // 0 = auto
-        workflows::run_line_defect_bands_neumann(0.35, 0.455, 0.05, max_m, 10.0, num_alpha, 20, n_mult);
+        const double window = (argc > 5) ? std::stod(argv[5]) : 20.0;
+        workflows::run_line_defect_bands_neumann(0.35, 0.455, 0.001, max_m, window, num_alpha, 20, n_mult);
         return 0;
     }
 
@@ -112,17 +122,18 @@ int main(int argc, char** argv) {
         const int points_per_disk    = (argc > 4) ? std::stoi(argv[4]) : 12;
         const int n_multipole        = (argc > 5) ? std::stoi(argv[5]) : 8;
         workflows::run_crystal_matrix_bands(0.35, 5.0e-2, points_per_disk, n_multipole,
-                                            points_per_segment, 0.05, 7.5, n_omega, 1.0e-3);
+                                            points_per_segment, 0.001, 7.5, n_omega, 1.0e-3);
         return 0;
     }
 
     if (mode == "patch-capacitance") {
         // Optional argv: n_defect [n_clad] [points_per_disk] [m_ang].
-        const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 10;
+        const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 5;
         const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 4;
-        const int npd      = (argc > 4) ? std::stoi(argv[4]) : 16;
+        const int npd      = (argc > 4) ? std::stoi(argv[4]) : 64;
         const int m_ang    = (argc > 5) ? std::stoi(argv[5]) : 1;
-        workflows::run_patch_capacitance(0.35, 0.455, 0.05, m_ang, n_defect, n_clad, npd);
+        const int fringe   = (argc > 6) ? std::stoi(argv[6]) : 1;
+        workflows::run_patch_capacitance(0.35, 0.455, 0.001, m_ang, n_defect, n_clad, fringe, npd);
         return 0;
     }
 
@@ -131,25 +142,43 @@ int main(int argc, char** argv) {
         const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 3;
         const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 3;
         const int fringe   = (argc > 4) ? std::stoi(argv[4]) : 1;
-        const int npd      = (argc > 5) ? std::stoi(argv[5]) : 16;
+        const int npd      = (argc > 5) ? std::stoi(argv[5]) : 64;
         const int m_ang    = (argc > 6) ? std::stoi(argv[6]) : 1;
-        workflows::run_bent_waveguide(0.35, 0.455, 0.05, m_ang, n_defect, n_clad, fringe, npd);
+        workflows::run_bent_waveguide(0.35, 0.455, 0.001, m_ang, n_defect, n_clad, fringe, npd);
         return 0;
     }
 
-    // if (mode == "bent-waveguide-field") {
-    //     // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [m_ang] [mode_index] [grid_points].
-    //     const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 3;
-    //     const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 3;
-    //     const int fringe   = (argc > 4) ? std::stoi(argv[4]) : 1;
-    //     const int npd      = (argc > 5) ? std::stoi(argv[5]) : 64;
-    //     const int m_ang    = (argc > 6) ? std::stoi(argv[6]) : 1;
-    //     const int mode_idx = (argc > 7) ? std::stoi(argv[7]) : -1;
-    //     const int ngrid    = (argc > 8) ? std::stoi(argv[8]) : 300;
-    //     workflows::run_bent_waveguide_field(0.35, 0.455, 0.05, m_ang, n_defect, n_clad, fringe,
-    //                                         npd, mode_idx, ngrid);
-    //     return 0;
-    // }
+    if (mode == "bent-waveguide-field") {
+        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [m_ang] [mode_index] [grid_points].
+        const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 3;
+        const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 3;
+        const int fringe   = (argc > 4) ? std::stoi(argv[4]) : 1;
+        const int npd      = (argc > 5) ? std::stoi(argv[5]) : 64;
+        const int m_ang    = (argc > 6) ? std::stoi(argv[6]) : 1;
+        const int mode_idx = (argc > 7) ? std::stoi(argv[7]) : -1;
+        const int ngrid    = (argc > 8) ? std::stoi(argv[8]) : 300;
+        workflows::run_bent_waveguide_field(0.35, 0.455, 0.001, m_ang, n_defect, n_clad, fringe,
+                                            npd, mode_idx, ngrid);
+        return 0;
+    }
+
+    if (mode == "bent-waveguide-exact") {
+        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [m_ang] [mode_index]
+        //                [grid_points] [delta].
+        const int n_defect  = (argc > 2) ? std::stoi(argv[2]) : 3;
+        const int n_clad    = (argc > 3) ? std::stoi(argv[3]) : 3;
+        const int fringe    = (argc > 4) ? std::stoi(argv[4]) : 1;
+        const int npd       = (argc > 5) ? std::stoi(argv[5]) : 64;
+        const int m_ang     = (argc > 6) ? std::stoi(argv[6]) : 1;
+        const int mode_idx  = (argc > 7) ? std::stoi(argv[7]) : -1;
+        const int ngrid     = (argc > 8) ? std::stoi(argv[8]) : 200;
+        const double delta  = (argc > 9) ? std::stod(argv[9]) : 0.001;
+        const double sre    = (argc > 10) ? std::stod(argv[10]) : -1.0;
+        const double sim    = (argc > 11) ? std::stod(argv[11]) : 0.0;
+        workflows::run_bent_waveguide_exact(0.35, 0.455, delta, m_ang, n_defect, n_clad, fringe,
+                                            npd, mode_idx, ngrid, sre, sim);
+        return 0;
+    }
 
     print_usage(argv[0]);
     return (mode == "help" || mode == "-h" || mode == "--help") ? 0 : 1;

@@ -23,6 +23,15 @@ SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 DATA_ROOT = Path.cwd()
 TARGET_FI = 1  # family index in capacitance_matrix_per_alpha.csv: 0 = breathing, 1 = dipole, ...
 
+plt.rcParams.update({
+        "font.size": 18,
+        "axes.labelsize": 20,
+        "xtick.labelsize": 16,
+        "ytick.labelsize": 16,
+        "legend.fontsize": 16,
+        "mathtext.fontset": "cm",
+        "axes.linewidth": 1.2,
+    })
 
 def resolve(name):
     p = DATA_ROOT / name
@@ -53,7 +62,7 @@ def main():
         first.append(patch_abs[idx])
 
         ax.semilogy(patch_ell, patch_abs, "o", ms=8, mfc="none",
-                    mew=1.6, label="N = " + filename.stem.split("_")[-2], zorder=10-patch_len)
+                    mew=1.6, label="$N = $" + filename.stem.split("_")[-2], zorder=10-patch_len)
         ax.set_xlim(-9, 9)
 
     # fpath = resolve("capacitance_matrix_per_alpha.csv")
@@ -69,9 +78,9 @@ def main():
     #     print("(capacitance_matrix_per_alpha.csv not found -- run `defect-capacitance` first "
     #           "for the numeric comparison; plotting the patch couplings only.)")
 
-    ax.set_xlabel(r"real-space separation $\ell$")
+    ax.set_xlabel(r"$\text{real-space separation}~\ell$")
     ax.set_ylabel(r"$\|C_\ell\|_F$")
-    ax.set_title("Bent waveguide: finite patches of different sizes")
+    ax.set_title(r"$\text{Bent waveguide: finite patches of different sizes}$")
     ax.grid(True, which="both", alpha=0.25)
     ax.legend()
     fig.tight_layout()
@@ -83,9 +92,9 @@ def main():
     print("Relative error in |C_0| vs largest patch:", error)
     plt.semilogy(range(len(error) - 1), np.abs(error[:-1]), "o", ms=8, mfc="none",
                  mew=1.6, label="relative error in |C_0| vs largest patch")
-    plt.xlabel("patch size (number of resonators along each side)")
-    plt.ylabel("relative error in |C_0|")
-    plt.title("Convergence of finite patch to infinite Floquet")
+    plt.xlabel(r"$\text{patch size (number of resonators along each side)}$")
+    plt.ylabel(r"$\text{relative error in}~|C_0|$")
+    plt.title(r"$\text{Convergence of finite patch to infinite Floquet}$")
     plt.grid(True, which="both", alpha=0.25)
     plt.legend()
     plt.tight_layout()

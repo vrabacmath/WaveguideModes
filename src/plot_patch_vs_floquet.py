@@ -16,13 +16,23 @@ the SAME geometry first (defaults match: R=0.35, R_def=0.455, delta=0.05, dipole
 
 from pathlib import Path
 
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import matplotlib.pyplot as plt
 
 SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 DATA_ROOT = Path.cwd()
-TARGET_FI = 1  # family index in capacitance_matrix_per_alpha.csv: 0 = breathing, 1 = dipole, ...
+TARGET_FI = 2  # family index in capacitance_matrix_per_alpha.csv: 0 = breathing, 1 = dipole, ...
 
+plt.rcParams.update({
+        "font.size": 18,
+        "axes.labelsize": 20,
+        "xtick.labelsize": 16,
+        "ytick.labelsize": 16,
+        "legend.fontsize": 12,
+        "mathtext.fontset": "cm",
+        "axes.linewidth": 1.2,
+    })
 
 def resolve(name):
     p = DATA_ROOT / name
@@ -77,32 +87,51 @@ def print_comparison(patch_ell, patch_abs, floquet_ell, floquet_abs):
         print(f"{ell:>3} {pv:>15.4e} {fv:>15.4e} {rel:>11.2e}{floor}")
 
 
+filenames = [resolve("build/patch_capacitance_couplings10_2_1.csv"),
+             resolve("build/patch_capacitance_couplings6_4_1.csv"),
+             resolve("build/patch_capacitance_couplings5_3_1.csv"),
+             resolve("build/patch_capacitance_couplings3_2_1.csv"),
+             resolve("build/patch_capacitance_couplings2_2_1.csv")]
+
 def main():
-    patch = np.loadtxt(resolve("patch_capacitance_couplings.csv"), delimiter=",")
-    if patch.ndim == 1:
-        patch = patch.reshape(1, -1)
-    patch_ell, patch_abs = patch[:, 0].astype(int), patch[:, 1]
-
     fig, ax = plt.subplots(figsize=(7.5, 5.0))
-    ax.semilogy(patch_ell, np.maximum(patch_abs, 1e-18), "o", ms=8, mfc="none", mec="tab:blue",
-                mew=1.6, label="finite patch (no Floquet)")
+    for filename in filenames[::-1]:
+        patch = np.loadtxt(filename, delimiter=",")
+        if patch.ndim == 1:
+            patch = patch.reshape(1, -1)
+        patch_ell, patch_abs = patch[:, 0].astype(int), patch[:, 1]
+        patch_size = filename.stem.split("_")[-3].removeprefix("couplings")
+        cladding_size = filename.stem.split("_")[-2]
 
-    fpath = resolve("capacitance_matrix_per_alpha.csv")
+        ax.semilogy(
+            patch_ell,
+            np.maximum(patch_abs, 1e-18),
+            "o",
+            ms=8,
+            mfc="none",
+            mew=1.6,
+            label=rf"$\text{{finite patch }} N={patch_size}, N_\text{{clad}}={cladding_size}$",
+            zorder=10 - len(patch_ell),
+        )
+
+    fpath = resolve("build/capacitance_matrix_per_alpha.csv")
     if fpath.exists() and fpath.stat().st_size > 0:
         alphas, C_alpha = read_floquet_blocks(fpath, TARGET_FI)
         if len(alphas):
             ell, C_ell = inverse_floquet(alphas, C_alpha)
             fab = np.linalg.norm(C_ell, axis=(1, 2)) if C_ell.ndim == 3 else np.abs(C_ell)
             ax.semilogy(ell, np.maximum(fab, 1e-18), "x", ms=7, color="tab:red",
-                        label="inverse Floquet (ifft of $C^\\alpha$)")
+                        label=r"$\text{inverse Floquet - IFFT of }C^\alpha$")
             print_comparison(patch_ell, patch_abs, ell, fab)
     else:
         print("(capacitance_matrix_per_alpha.csv not found -- run `defect-capacitance` first "
               "for the numeric comparison; plotting the patch couplings only.)")
 
-    ax.set_xlabel(r"real-space separation $\ell$")
+    ax.set_xlabel(r"$\text{real-space separation } \ell$")
     ax.set_ylabel(r"$\|C_\ell\|_F$")
-    ax.set_title("Real-space capacitance coupling: finite patch vs inverse Floquet")
+    ax.set_xlim(-10, 10)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    # ax.set_title("Real-space capacitance coupling: finite patch vs. inverse Floquet")
     ax.grid(True, which="both", alpha=0.25)
     ax.legend()
     fig.tight_layout()

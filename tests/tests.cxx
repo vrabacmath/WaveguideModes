@@ -3,6 +3,7 @@
 //
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <iostream>
 #include "operators.h"
 #include "spectral_operators.h"
@@ -11,6 +12,7 @@
 #include "q_function.h"
 #include "utils.h"
 #include "multipole.h"
+#include "workflows/bent_waveguide_patch.h"
 
 using namespace std;
 using namespace Eigen;
@@ -1270,6 +1272,44 @@ TEST(CapacitanceMatrix, SingleDiskDipoleMatchesAnalytic) {
         EXPECT_NEAR(lam(j).real(), lam_exact.real(), tol);
         EXPECT_NEAR(lam(j).imag(), lam_exact.imag(), tol);
     }
+}
+
+TEST(BentWaveguidePatch, EndpointDefectsAreScreenersNotMatrixSites) {
+    const int n_defect = 3;
+    const int fringe = 1;
+    const auto p = workflows::build_bent_patch(0.35, 0.455, 1, n_defect, 2, fringe, 16,
+                                               /*verbose=*/false);
+
+    ASSERT_EQ(p.L, n_defect + fringe - 1);
+    ASSERT_EQ(p.L_main, n_defect - 1);
+    ASSERT_EQ(static_cast<int>(p.defect_index.size()), 2 * p.L + 1);
+    ASSERT_EQ(static_cast<int>(p.main_indices.size()), 2 * p.L_main + 1);
+    ASSERT_EQ(p.center, p.L_main);
+    EXPECT_EQ(p.defect_index.count(workflows::BentPatch::site_at(-p.L)), 1);
+    EXPECT_EQ(p.defect_index.count(workflows::BentPatch::site_at(p.L)), 1);
+    EXPECT_EQ(std::find(p.main_indices.begin(), p.main_indices.end(),
+                        p.defect_index.at(workflows::BentPatch::site_at(-p.L))),
+              p.main_indices.end())
+        << "negative endpoint is still a projected matrix site";
+    EXPECT_EQ(std::find(p.main_indices.begin(), p.main_indices.end(),
+                        p.defect_index.at(workflows::BentPatch::site_at(p.L))),
+              p.main_indices.end())
+        << "positive endpoint is still a projected matrix site";
+
+    const int modes = p.modes;
+    const int n_main = static_cast<int>(p.main_indices.size());
+    double row_sym = 0.0;
+    double row_scale = 0.0;
+    for (int q = 0; q < n_main; ++q) {
+        const int r = 2 * p.center - q;
+        ASSERT_GE(r, 0);
+        ASSERT_LT(r, n_main);
+        const double left = p.C.block(modes * p.center, modes * q, modes, modes).norm();
+        const double right = p.C.block(modes * p.center, modes * r, modes, modes).norm();
+        row_sym = std::max(row_sym, std::abs(left - right));
+        row_scale = std::max(row_scale, std::max(left, right));
+    }
+    EXPECT_LT(row_sym / row_scale, 1e-10);
 }
 
 // erfc_complex must satisfy the reflection identity erfc(z) + erfc(-z) = 2 everywhere. Before the
