@@ -907,15 +907,15 @@ TEST(QuasiPeriodicStaticGreen, InterfaceModeIsTopological) {
 // verification protocol behind the higher-frequency defect-band scan.
 TEST(MultipoleDefectOperator, ConvergesUnderRefinement) {
     const double R = 0.05, Rd = 0.8 * R, Rp = 0.97 * R, delta = 2e-4;
-    const cpxd v = 1.0, vb = 1.0;
+    const cpxd v = 1.0, vb = 1.0, vbd = 1.0;
     const cpxd omega(4.2, 1e-3);
     const double alpha_x = 0.5 * M_PI;
     auto sigma_min = [](const MatrixXcd& A) {
         return Eigen::JacobiSVD<MatrixXcd>(A).singularValues().tail<1>()(0);
     };
-    Multipole base(8, 35, R, Rp, Rd, v, vb, delta);
-    Multipole fine_bz(8, 50, R, Rp, Rd, v, vb, delta);
-    Multipole fine_N(12, 35, R, Rp, Rd, v, vb, delta);
+    Multipole base(8, 35, R, Rp, Rd, v, vb, vbd, delta);
+    Multipole fine_bz(8, 50, R, Rp, Rd, v, vb, vbd, delta);
+    Multipole fine_N(12, 35, R, Rp, Rd, v, vb, vbd, delta);
     double s0 = sigma_min(base.crystal_line_M_operator(omega, alpha_x));
     double s_bz = sigma_min(fine_bz.crystal_line_M_operator(omega, alpha_x));
     double s_N = sigma_min(fine_N.crystal_line_M_operator(omega, alpha_x));
@@ -1197,26 +1197,39 @@ TEST(MultipoleDefectATest, LocalMapsMatchEffectiveSourceFormula) {
     const double defect_radius = 0.18;
     const cpxd k(0.72, 0.04);
     const cpxd k_b(1.08, 0.03);
+    // A defect interior wavenumber distinct from k_b: the defect blocks (A_{D_d} and the interior
+    // block of P1) must follow k_bd while A_D and everything exterior stay at k_b / k.
+    const cpxd k_bd(0.91, 0.05);
     const Vector2d alpha(0.4, -0.35);
     const double delta = 2.0e-4;
 
     MatrixXcd alpha_operator, local_map, defect_map;
     Utils::multipole_defect_A(alpha_operator, local_map, defect_map, order_cutoff,
-                              radius, defect_radius, k, k_b, alpha, delta);
+                              radius, defect_radius, k, k_b, k_bd, alpha, delta);
 
     MatrixXcd expected_alpha_operator;
     Utils::multipole_crystal_A(expected_alpha_operator, order_cutoff, radius, k, k_b, alpha, delta);
     const MatrixXcd expected_local =
             local_effective_source_operator(order_cutoff, radius, k, k_b, delta);
     const MatrixXcd defect_local =
-            local_effective_source_operator(order_cutoff, defect_radius, k, k_b, delta);
-    const MatrixXcd p1 = defect_projector1(order_cutoff, radius, defect_radius, k, k_b);
+            local_effective_source_operator(order_cutoff, defect_radius, k, k_bd, delta);
+    const MatrixXcd p1 = defect_projector1(order_cutoff, radius, defect_radius, k, k_bd);
     const MatrixXcd p2 = defect_projector2(order_cutoff, radius, defect_radius, k);
     const MatrixXcd expected_defect = p2.partialPivLu().solve(defect_local * p1);
 
     EXPECT_LT((alpha_operator - expected_alpha_operator).norm() / expected_alpha_operator.norm(), 1e-13);
     EXPECT_LT((local_map - expected_local).norm() / expected_local.norm(), 1e-13);
     EXPECT_LT((defect_map - expected_defect).norm() / expected_defect.norm(), 1e-13);
+
+    // Same-material sanity: with k_bd == k_b the operator must reduce to the old behavior.
+    MatrixXcd alpha_operator_same, local_map_same, defect_map_same;
+    Utils::multipole_defect_A(alpha_operator_same, local_map_same, defect_map_same, order_cutoff,
+                              radius, defect_radius, k, k_b, k_b, alpha, delta);
+    const MatrixXcd defect_local_same =
+            local_effective_source_operator(order_cutoff, defect_radius, k, k_b, delta);
+    const MatrixXcd p1_same = defect_projector1(order_cutoff, radius, defect_radius, k, k_b);
+    const MatrixXcd expected_defect_same = p2.partialPivLu().solve(defect_local_same * p1_same);
+    EXPECT_LT((defect_map_same - expected_defect_same).norm() / expected_defect_same.norm(), 1e-13);
 }
 
 // Validate the frequency-dependent capacitance matrix used by run_defect_capacitance_bands
@@ -1278,6 +1291,7 @@ TEST(BentWaveguidePatch, EndpointDefectsAreScreenersNotMatrixSites) {
     const int n_defect = 3;
     const int fringe = 1;
     const auto p = workflows::build_bent_patch(0.35, 0.455, 1, n_defect, 2, fringe, 16,
+                                               /*v=*/1.0, /*v_b=*/1.0, /*v_bd=*/1.0,
                                                /*verbose=*/false);
 
     ASSERT_EQ(p.L, n_defect + fringe - 1);

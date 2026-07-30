@@ -34,9 +34,10 @@ struct Location {
 
 void run_bent_waveguide_field(double radius, double defect_radius, double delta, int m_ang,
                               int n_defect, int n_clad, int fringe, int points_per_disk,
-                              int mode_index, int grid_points) {
+                              int mode_index, int grid_points, double v, double v_b,
+                              double v_bd) {
     const BentPatch p = build_bent_patch(radius, defect_radius, m_ang, n_defect, n_clad,
-                                         fringe, points_per_disk);
+                                         fringe, points_per_disk, v, v_b, v_bd);
     const int modes = p.modes;
     const int n_main = static_cast<int>(p.main_indices.size());
 
@@ -90,14 +91,14 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
     if (pick < 0 || pick >= static_cast<int>(order.size()))
         pick = static_cast<int>(std::max_element(corner_weight.begin(), corner_weight.end()) -
                                 corner_weight.begin());
-    const VectorXcd v = vecs.col(order[pick]);
+    const VectorXcd vmode = vecs.col(order[pick]);
     std::cout << "  drawing mode j=" << pick << "  lambda=" << lam(order[pick])
               << "  omega=" << p.omega0 + delta * lam(order[pick]) << "\n";
 
     // --- the density on the WHOLE cluster --------------------------------------------------
     // psi is nonzero on cladding rows too: that is the induced density enforcing the cladding's
     // sound-soft condition, i.e. the cladding's contribution to the field.
-    const VectorXcd psi = p.X * v;
+    const VectorXcd psi = p.X * vmode;
 
     double defect_rows = 0.0, other_rows = 0.0;
     for (int q = 0; q < n_main; ++q) {
@@ -164,7 +165,7 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
                 const double radial = bessel::cyl_j(m_ang, p.beta * loc.rho / defect_radius) / Jm_beta;
                 for (int s = 0; s < modes; ++s) {
                     const double sg = (s == 0) ? 1.0 : -1.0;
-                    u += v(modes * loc.slot + s) * p.Anorm * radial *
+                    u += vmode(modes * loc.slot + s) * p.Anorm * radial *
                          std::exp(cpxd(0, 1.0) * sg * double(m_ang) * loc.phi);
                 }
             } else if (loc.kind == Location::Exterior) {
@@ -211,14 +212,14 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
     {
         const int q = p.center;
         const int s0 = p.mesh.get_start_index(p.main_indices[q]);
-        const VectorXcd trace = p.G * v;
+        const VectorXcd trace = p.G * vmode;
         double worst = 0.0, ref = 0.0;
         for (int loc = 0; loc < p.N; ++loc) {
             const double th = 2.0 * M_PI * double(loc) / double(p.N);
             cpxd u_in = 0.0;
             for (int s = 0; s < modes; ++s) {
                 const double sg = (s == 0) ? 1.0 : -1.0;
-                u_in += v(modes * q + s) * p.Anorm *
+                u_in += vmode(modes * q + s) * p.Anorm *
                         std::exp(cpxd(0, 1.0) * sg * double(m_ang) * th);
             }
             worst = std::max(worst, std::abs(u_in - trace(s0 + loc)));

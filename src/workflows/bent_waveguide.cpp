@@ -19,9 +19,10 @@ namespace workflows {
 using namespace Eigen;
 
 void run_bent_waveguide(double radius, double defect_radius, double delta,
-                           int m_ang, int n_defect, int n_clad, int fringe, int points_per_disk) {
+                           int m_ang, int n_defect, int n_clad, int fringe, int points_per_disk,
+                           double v, double v_b, double v_bd) {
     const BentPatch p = build_bent_patch(radius, defect_radius, m_ang, n_defect, n_clad,
-                                         fringe, points_per_disk);
+                                         fringe, points_per_disk, v, v_b, v_bd);
     const int modes = p.modes;
     const int center = p.center;
     const int n_main = static_cast<int>(p.main_indices.size());

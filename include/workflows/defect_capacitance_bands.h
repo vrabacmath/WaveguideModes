@@ -51,6 +51,10 @@ namespace workflows {
 // Verified by the unit test CapacitanceMatrix.SingleDiskDipoleMatchesAnalytic.
 // alpha_lo_frac/alpha_hi_frac restrict the swept window to [lo, hi] * pi (useful to rerun a
 // failed or interesting alpha segment at higher resolution).
+// Wave speeds: v is the background medium's, v_b the crystal resonators' interior, v_bd the
+// defect resonator's interior. omega_0 = v_bd j'_{m,1}/R_def and C^reg carries v_bd^2; v_b does
+// not enter the leading-order capacitance (the crystal disks are off-resonant and act only
+// through the exterior operators) but is kept for a uniform interface.
 void run_defect_capacitance_bands(double radius = 0.35,
                                   double defect_radius = 0.455,
                                   double delta = 0.05,
@@ -59,7 +63,10 @@ void run_defect_capacitance_bands(double radius = 0.35,
                                   int points_per_disk = 24,
                                   int num_alpha = 31,
                                   double alpha_lo_frac = 0.0,
-                                  double alpha_hi_frac = 1.0);
+                                  double alpha_hi_frac = 1.0,
+                                  double v = 1.0,
+                                  double v_b = 1.0,
+                                  double v_bd = 1.0);
 
 }  // namespace workflows
 

@@ -588,8 +588,14 @@ namespace Utils {
      * A_defect_map is A_D^epsilon = P2^{-1} A_{D_d} P1 from equation (19).
      * The defect operator in equation (25) is then
      *   I + (A_defect_map - A_D_map) * integral_BZ((A^alpha)^{-1}) d alpha / (2pi)^2.
+     *
+     * k_bd is the INTERIOR wavenumber of the defect resonator (omega / v_bd); it may differ
+     * from the crystal interior wavenumber k_b when the defect is a different material. The
+     * defect site's interior field is local to that site, so only A_{D_d} and the interior
+     * block of P1 (which re-expresses the same interior field as a density on the defect
+     * boundary) see k_bd; A_D and everything exterior keep k_b / k.
      */
-    inline void multipole_defect_A(MatrixXcd &A_matrix, MatrixXcd &A_D_map, MatrixXcd &A_defect_map, int N, double R, double R_defect, cpxd k, cpxd k_b, Vector2d alpha, double delta) {
+    inline void multipole_defect_A(MatrixXcd &A_matrix, MatrixXcd &A_D_map, MatrixXcd &A_defect_map, int N, double R, double R_defect, cpxd k, cpxd k_b, cpxd k_bd, Vector2d alpha, double delta) {
         int M = 2 * N + 1;
         MatrixXcd S_ext(M, M), dS_ext(M, M), S_b(M, M), dS_b(M, M);
         const cpxd c = -cpxd(0, 0.5) * M_PI * R;
@@ -610,7 +616,7 @@ namespace Utils {
         MatrixXcd projector1 = MatrixXcd::Zero(2 * M, 2 * M),
                   projector2 = MatrixXcd::Zero(2 * M, 2 * M);
 
-#pragma omp parallel for schedule(static) default(none) shared(S_ext, dS_ext, S_b, dS_b, A_D_map, A_defect_map, A_defect, r_ratio, N, M, R, R_defect, k, k_b, alpha, c, c_defect, projector1, projector2, delta, cyl_h1_prime, cyl_j_prime)
+#pragma omp parallel for schedule(static) default(none) shared(S_ext, dS_ext, S_b, dS_b, A_D_map, A_defect_map, A_defect, r_ratio, N, M, R, R_defect, k, k_b, k_bd, alpha, c, c_defect, projector1, projector2, delta, cyl_h1_prime, cyl_j_prime)
         for (int i = 0; i < M; i++) {
             for (int j = 0; j < M; j++) {
                 int m = i - N;
@@ -637,19 +643,22 @@ namespace Utils {
                     A_D_map(i + M, i) = c * k_b * jp_interior * h_interior;
                     A_D_map(M + i, M + i) = -c * k * delta * j_source * hp_exterior;
 
-                    const cpxd j_defect_interior = bessel::cyl_j(n, k_b * R_defect);
-                    const cpxd h_defect_interior = bessel::cyl_h1(n, k_b * R_defect);
-                    const cpxd jp_defect_interior = cyl_j_prime(n, k_b * R_defect);
+                    const cpxd j_defect_interior = bessel::cyl_j(n, k_bd * R_defect);
+                    const cpxd h_defect_interior = bessel::cyl_h1(n, k_bd * R_defect);
+                    const cpxd jp_defect_interior = cyl_j_prime(n, k_bd * R_defect);
                     const cpxd j_defect_exterior = bessel::cyl_j(n, k * R_defect);
                     const cpxd h_defect_exterior = bessel::cyl_h1(n, k * R_defect);
                     const cpxd hp_defect_exterior = cyl_h1_prime(n, k * R_defect);
 
                     A_defect(i, i) = c_defect * j_defect_interior * h_defect_interior;
                     A_defect(i, i + M) = -c_defect * j_defect_exterior * h_defect_exterior;
-                    A_defect(i + M, i) = c_defect * k_b * jp_defect_interior * h_defect_interior;
+                    A_defect(i + M, i) = c_defect * k_bd * jp_defect_interior * h_defect_interior;
                     A_defect(M + i, M + i) = -c_defect * k * delta * j_defect_exterior * hp_defect_exterior;
 
-                    projector1(i, i) = r_ratio * bessel::cyl_h1(n, k_b * R) / bessel::cyl_h1(n, k_b * R_defect);
+                    // interior block of P1 at the DEFECT interior wavenumber: it maps the density
+                    // generating a given interior field on dD to the one generating the same
+                    // field on dD_d, and at the defect site that field lives at k_bd.
+                    projector1(i, i) = r_ratio * bessel::cyl_h1(n, k_bd * R) / bessel::cyl_h1(n, k_bd * R_defect);
                     projector1(i + M, i + M) = r_ratio * bessel::cyl_j(n, k * R) / bessel::cyl_j(n, k * R_defect);
                     projector2(i, i) = bessel::cyl_j(n, k * R_defect) / bessel::cyl_j(n, k * R);
                     projector2(i + M, i + M) = cyl_j_prime(n, k * R_defect) / cyl_j_prime(n, k * R);

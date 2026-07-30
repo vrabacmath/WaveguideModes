@@ -100,7 +100,9 @@ void run_crystal_matrix_bands(double radius,
                               double omega_lo,
                               double omega_hi,
                               int n_omega,
-                              double omega_imag) {
+                              double omega_imag,
+                              double v,
+                              double v_b) {
     points_per_disk = std::max(points_per_disk, 8);
     n_multipole = std::max(n_multipole, 1);
     n_omega = std::max(n_omega, 3);
@@ -110,7 +112,6 @@ void run_crystal_matrix_bands(double radius,
 
     const std::vector<KPoint> path = make_m_gamma_x_m_path(points_per_segment);
     const Vector2d a1(1.0, 0.0), a2(0.0, 1.0);
-    const cpxd v = 1.0, v_b = 1.0;
 
     BoundaryMesh mesh(points_per_disk);
     mesh.generate_circle(radius);
@@ -145,7 +146,7 @@ void run_crystal_matrix_bands(double radius,
 void run_projected_bulk_bands(double radius, double delta, int n_multipole,
                               int num_alpha_x, int n_alpha_y,
                               double omega_lo, double omega_hi, int n_omega,
-                              double omega_imag) {
+                              double omega_imag, double v, double v_b) {
     num_alpha_x = std::max(num_alpha_x, 2);
     n_alpha_y = std::max(n_alpha_y, 3);
     n_omega = std::max(n_omega, 3);
@@ -169,7 +170,7 @@ void run_projected_bulk_bands(double radius, double delta, int n_multipole,
             for (int j = 0; j < n_alpha_y; ++j) {
                 const double alpha_y = M_PI * j / (n_alpha_y - 1);
                 MatrixXcd A;
-                Utils::multipole_crystal_A(A, n_multipole, radius, omega_c, omega_c,
+                Utils::multipole_crystal_A(A, n_multipole, radius, omega_c / v, omega_c / v_b,
                                            Vector2d(alpha_x, alpha_y), delta);
                 vals[j] = JacobiSVD<MatrixXcd>(A).singularValues().tail<1>()(0);
             }

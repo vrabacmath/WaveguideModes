@@ -31,7 +31,7 @@ using namespace Eigen;
 
 class Multipole {
 public:
-    Multipole(int N_multipole, int N_gauss, double multipole_radius, double point_defect_radius, double line_defect_radius, cpxd v, cpxd v_b, double delta);
+    Multipole(int N_multipole, int N_gauss, double multipole_radius, double point_defect_radius, double line_defect_radius, cpxd v, cpxd v_b, cpxd v_bd, double delta);
     MatrixXcd crystal_M_operator(cpxd omega);
     MatrixXcd crystal_line_M_operator(cpxd omega, double alpha_x);
 
@@ -45,6 +45,7 @@ private:
     double line_defect_radius;
     cpxd v;
     cpxd v_b;
+    cpxd v_bd;  // interior wave speed of the defect resonators
     double delta;
 };
 

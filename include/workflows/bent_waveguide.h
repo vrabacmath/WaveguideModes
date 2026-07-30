@@ -27,6 +27,7 @@ namespace workflows {
 //                                    row-major -- the corner resonator's 2x2 coupling blocks.
 //   bent_waveguide_resonances.csv      Re(lambda), Im(lambda), Re(omega), Im(omega) -- eig(C),
 //                                    omega = omega_0 + delta*lambda (finite defect resonances).
+// Wave speeds: v background, v_b crystal interior, v_bd defect interior (see build_bent_patch).
 void run_bent_waveguide(double radius = 0.35,
                         double defect_radius = 0.455,
                         double delta = 0.05,
@@ -34,7 +35,10 @@ void run_bent_waveguide(double radius = 0.35,
                         int n_defect = 3,
                         int n_clad = 3,
                         int fringe = 1,
-                        int points_per_disk = 16);
+                        int points_per_disk = 16,
+                        double v = 1.0,
+                        double v_b = 1.0,
+                        double v_bd = 1.0);
 
 }  // namespace workflows
 

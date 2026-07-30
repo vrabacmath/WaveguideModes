@@ -23,11 +23,18 @@ using namespace Eigen;
 namespace {
 
 // A(omega) on the whole cluster, same block layout as SpectralOperators::A. Assembled here
-// rather than through ops.A so that the S/K* pair is built once when the interior and exterior
-// wavenumbers coincide (kV == kVb in this workflow) instead of twice.
-MatrixXcd assemble_A(SpectralOperators& ops, int Ntot, cpxd omega, cpxd kV, cpxd kVb,
-                     double delta) {
-    const cpxd k = omega / kV, kb = omega / kVb;
+// rather than through ops.A so that each S/K* pair is built once per DISTINCT wavenumber
+// (all three coincide in the single-material case) instead of once per block.
+//
+// With a defect material the interior wavenumber differs per disk: rows of the interior
+// blocks belonging to defect disks (defect_row) use k_bd = omega/kVbd, cladding rows use
+// k_b = omega/kVb. This is exact, not a splice of two problems: the interior single layer only
+// has to represent the field inside its own disk (interior fields are local), and the trace /
+// jump relations of S^k hold row-wise on each boundary, so evaluating the interior rows of a
+// defect boundary at k_bd is precisely the transmission condition for that disk.
+MatrixXcd assemble_A(SpectralOperators& ops, int Ntot, cpxd omega, cpxd kV, cpxd kVb, cpxd kVbd,
+                     const std::vector<bool>& defect_row, double delta) {
+    const cpxd k = omega / kV, kb = omega / kVb, kbd = omega / kVbd;
     MatrixXcd Sb, Kb;
     ops.S(Sb, kb);
     ops.Kstar(Kb, kb);
@@ -35,6 +42,21 @@ MatrixXcd assemble_A(SpectralOperators& ops, int Ntot, cpxd omega, cpxd kV, cpxd
     if (k != kb) {
         ops.S(S, k);
         ops.Kstar(Kst, k);
+    }
+    if (kbd != kb) {
+        MatrixXcd Sbd, Kbd;
+        if (kbd == k) {
+            Sbd = S;
+            Kbd = Kst;
+        } else {
+            ops.S(Sbd, kbd);
+            ops.Kstar(Kbd, kbd);
+        }
+        for (int i = 0; i < Ntot; ++i)
+            if (defect_row[i]) {
+                Sb.row(i) = Sbd.row(i);
+                Kb.row(i) = Kbd.row(i);
+            }
     }
     MatrixXcd A = MatrixXcd::Zero(2 * Ntot, 2 * Ntot);
     const MatrixXcd I = MatrixXcd::Identity(Ntot, Ntot);
@@ -58,10 +80,11 @@ struct MullerResult {
 // that scalar has POLES interlacing the resonances (wherever w^H A^{-1} r crosses zero), and a
 // Muller iterate landing near one gets flung into a neighbouring basin -- observed as modes 6/9
 // collapsing onto mode 5's resonance once delta shrank the basin spacing. mu has no such poles.
-MullerResult muller_resonance(SpectralOperators& ops, int Ntot, cpxd kV, cpxd kVb, double delta,
+MullerResult muller_resonance(SpectralOperators& ops, int Ntot, cpxd kV, cpxd kVb, cpxd kVbd,
+                              const std::vector<bool>& defect_row, double delta,
                               const VectorXcd& w, const VectorXcd& r, cpxd omega_guess) {
     auto g = [&](cpxd omega) {
-        const MatrixXcd A = assemble_A(ops, Ntot, omega, kV, kVb, delta);
+        const MatrixXcd A = assemble_A(ops, Ntot, omega, kV, kVb, kVbd, defect_row, delta);
         const PartialPivLU<MatrixXcd> lu = A.partialPivLu();
         VectorXcd x = r;
         for (int it = 0; it < 3; ++it) x = lu.solve(x).normalized();
@@ -119,9 +142,20 @@ VectorXcd probe(int n, double p, double q) {
 
 void run_bent_waveguide_exact(double radius, double defect_radius, double delta, int m_ang,
                               int n_defect, int n_clad, int fringe, int points_per_disk,
-                              int mode_index, int grid_points, double seed_re, double seed_im) {
+                              int mode_index, int grid_points, double seed_re, double seed_im,
+                              double v, double v_b, double v_bd) {
     const BentPatch p = build_bent_patch(radius, defect_radius, m_ang, n_defect, n_clad, fringe,
-                                         points_per_disk, /*verbose=*/false);
+                                         points_per_disk, v, v_b, v_bd, /*verbose=*/false);
+
+    // Boundary rows belonging to defect disks: these carry the defect interior wavenumber in
+    // assemble_A, and identify the defect interiors in the field evaluation below.
+    std::vector<bool> defect_row(p.Ntot, false);
+    std::vector<bool> is_defect_disk(p.disks.size(), false);
+    for (const auto& kv : p.defect_index) {
+        is_defect_disk[kv.second] = true;
+        const int s0 = p.mesh.get_start_index(kv.second);
+        for (int i = 0; i < p.N; ++i) defect_row[s0 + i] = true;
+    }
     const int modes = p.modes;
     const int n_main = static_cast<int>(p.main_indices.size());
     const int n_eig = modes * n_main;
@@ -183,8 +217,8 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
             seed = cpxd(seed_re, seed_im);
             std::cout << "  (seed override: " << seed << ")\n";
         }
-        const MullerResult mr =
-            muller_resonance(ops, p.Ntot, p.kV, p.kVb, delta, wprobe, rprobe, seed);
+        const MullerResult mr = muller_resonance(ops, p.Ntot, p.kV, p.kVb, p.kVbd, defect_row,
+                                                 delta, wprobe, rprobe, seed);
         if (!mr.converged)
             std::cout << "    WARNING: mode " << j << " did not converge in " << mr.iters
                       << " iterations\n";
@@ -192,7 +226,7 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
 
         // Residual of the null vector at the converged omega (computed again below for the drawn
         // mode; here just for the report).
-        const MatrixXcd A = assemble_A(ops, p.Ntot, mr.omega, p.kV, p.kVb, delta);
+        const MatrixXcd A = assemble_A(ops, p.Ntot, mr.omega, p.kV, p.kVb, p.kVbd, defect_row, delta);
         VectorXcd x = rprobe;
         const PartialPivLU<MatrixXcd> lu = A.partialPivLu();
         for (int it = 0; it < 2; ++it) x = lu.solve(x).normalized();
@@ -212,7 +246,7 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
     // Near the resonance A is almost singular, so one LU solve of a generic vector already lies
     // along the null direction to ~sigma_min/sigma_next; two iterations are plenty.
     std::cout << "  drawing exact mode j=" << draw << " at omega* = " << omega_draw << "\n";
-    const MatrixXcd A = assemble_A(ops, p.Ntot, omega_draw, p.kV, p.kVb, delta);
+    const MatrixXcd A = assemble_A(ops, p.Ntot, omega_draw, p.kV, p.kVb, p.kVbd, defect_row, delta);
     const PartialPivLU<MatrixXcd> lu = A.partialPivLu();
     VectorXcd psi_full = rprobe;
     for (int it = 0; it < 2; ++it) psi_full = lu.solve(psi_full).normalized();
@@ -230,8 +264,10 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
     // trace u = S_b psi_int on each defect boundary, project onto e^{+-i m theta}, and compare
     // the per-site weight profile against every capacitance eigenvector.
     {
+        // The fingerprint only reads the trace on DEFECT boundaries, whose interior layer lives
+        // at the defect wavenumber, so assemble S there.
         MatrixXcd Sb;
-        ops.S(Sb, omega_draw / p.kVb);
+        ops.S(Sb, omega_draw / p.kVbd);
         const VectorXcd trace = Sb * psi_int;
 
         std::vector<double> wsite;   // main sites, path order
@@ -310,11 +346,10 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
 
     // --- evaluate the field -----------------------------------------------------------------
     // Unlike the O(delta) reconstruction there are no dark disks: EVERY disk interior carries the
-    // k_b single layer of the full union boundary, so the cladding interior field -- which the
-    // leading-order model sets to zero -- comes out too.
-    const cpxd k_ext = omega_draw / p.kV, k_int = omega_draw / p.kVb;
-    std::vector<bool> is_defect_disk(p.disks.size(), false);
-    for (const auto& kv : p.defect_index) is_defect_disk[kv.second] = true;
+    // interior single layer of the full union boundary (at its own material's wavenumber), so the
+    // cladding interior field -- which the leading-order model sets to zero -- comes out too.
+    const cpxd k_ext = omega_draw / p.kV;
+    const cpxd k_int_clad = omega_draw / p.kVb, k_int_def = omega_draw / p.kVbd;
 
     const double half = double(p.L) + 1.0;
     const int Ng = std::max(grid_points, 16);
@@ -348,7 +383,8 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
             }
 
             const VectorXcd& dens = (inside >= 0) ? psi_int : psi_ext;
-            const cpxd kk = (inside >= 0) ? k_int : k_ext;
+            const cpxd kk = (inside < 0) ? k_ext
+                                         : (is_defect_disk[inside] ? k_int_def : k_int_clad);
             cpxd u = 0.0;
             for (int j = 0; j < p.Ntot; ++j)
                 u += dens(j) * Kernels::helmholtz_2D(kk, r, p.mesh.get_vertex(j).point) *

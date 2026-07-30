@@ -21,6 +21,7 @@ namespace workflows {
 //   bent_waveguide_modes.csv   per-mode Re/Im(lambda), Re/Im(omega), corner weight, participation
 //   bent_waveguide_field_{real,imag,mag,phase}.csv   grid_points^2 field maps
 //   bent_waveguide_field_axis.csv                    the grid coordinate axis
+// Wave speeds: v background, v_b crystal interior, v_bd defect interior (see build_bent_patch).
 void run_bent_waveguide_field(double radius = 0.35,
                               double defect_radius = 0.455,
                               double delta = 0.05,
@@ -30,7 +31,10 @@ void run_bent_waveguide_field(double radius = 0.35,
                               int fringe = 1,
                               int points_per_disk = 64,
                               int mode_index = -1,
-                              int grid_points = 300);
+                              int grid_points = 300,
+                              double v = 1.0,
+                              double v_b = 1.0,
+                              double v_bd = 1.0);
 
 }  // namespace workflows
 

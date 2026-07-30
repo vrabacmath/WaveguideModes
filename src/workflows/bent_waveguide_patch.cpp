@@ -21,7 +21,8 @@ double first_neumann_zero(int m) {
 }
 
 BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n_defect,
-                           int n_clad, int fringe, int points_per_disk, bool verbose) {
+                           int n_clad, int fringe, int points_per_disk, double v, double v_b,
+                           double v_bd, bool verbose) {
     BentPatch p;
     p.N = std::max(points_per_disk, 8);
     p.m_ang = m_ang;
@@ -29,9 +30,10 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
     p.beta = first_neumann_zero(m_ang);
     p.radius = radius;
     p.defect_radius = defect_radius;
-    p.kVb = 1.0;
-    p.kV = 1.0;
-    p.omega0 = std::abs(p.kVb) * p.beta / defect_radius;
+    p.kV = v;
+    p.kVb = v_b;
+    p.kVbd = v_bd;
+    p.omega0 = v_bd * p.beta / defect_radius;
     p.k = cpxd(p.omega0, 1e-3) / p.kV;  // small Im(k) regularises the near-resonant solve
 
     // --- build the centered patch --------------------------------------------------------
@@ -119,7 +121,7 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
     ops.Kstar(Kstar, p.k);
     p.X = S.partialPivLu().solve(p.G);
     const MatrixXcd LamG = 0.5 * p.X + Kstar * p.X;
-    p.C = -(p.kVb * p.kVb) / (2.0 * p.omega0) * (p.G.adjoint() * (p.sigma.asDiagonal() * LamG));
+    p.C = -(p.kVbd * p.kVbd) / (2.0 * p.omega0) * (p.G.adjoint() * (p.sigma.asDiagonal() * LamG));
 
     return p;
 }

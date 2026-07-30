@@ -15,6 +15,7 @@ namespace workflows {
 // Writes:
 //   crystalA_m_gamma_x_m.csv    s, omega, sigma_min, log_abs_det, alpha_x, alpha_y
 //   multipoleA_m_gamma_x_m.csv  s, omega, sigma_min, log_abs_det, alpha_x, alpha_y
+// v is the background wave speed, v_b the resonators' interior speed (k = omega/v, k_b = omega/v_b).
 void run_crystal_matrix_bands(double radius = 0.25,
                               double delta = 1.0e-2,
                               int points_per_disk = 32,
@@ -23,7 +24,9 @@ void run_crystal_matrix_bands(double radius = 0.25,
                               double omega_lo = 0.05,
                               double omega_hi = 6.0,
                               int n_omega = 140,
-                              double omega_imag = 1.0e-3);
+                              double omega_imag = 1.0e-3,
+                              double v = 1.0,
+                              double v_b = 1.0);
 
 // Projected bulk spectrum for the LINE-DEFECT band diagrams: for each alpha_x on [0, pi] and
 // each omega on a grid, sweep the transverse Bloch parameter alpha_y over [0, pi] and record
@@ -42,7 +45,9 @@ void run_projected_bulk_bands(double radius = 0.35,
                               double omega_lo = 3.8,
                               double omega_hi = 9.2,
                               int n_omega = 271,
-                              double omega_imag = 1.0e-3);
+                              double omega_imag = 1.0e-3,
+                              double v = 1.0,
+                              double v_b = 1.0);
 
 }  // namespace workflows
 

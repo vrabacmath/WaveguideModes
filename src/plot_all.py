@@ -51,10 +51,10 @@ BAND_VIEWS = [
     {
         "output": "dipole.pdf",
         "title": "Dipole bands",
-        "ylim": (4.04, 4.06),
+        "ylim": (4.044, 4.051),
         "families": [1],
         "figsize": (7.5, 5.0),
-        "legend_loc": "lower right",
+        "legend_loc": "lower left",
         "legend_anchor": None,
         "legend_fontsize": 16,
         "bulk": False,
@@ -62,10 +62,10 @@ BAND_VIEWS = [
     {
         "output": "quadrupole.pdf",
         "title": "Quadrupole bands",
-        "ylim": (6.67, 6.74),
+        "ylim": (6.71, 6.72),
         "families": [2],
         "figsize": (7.5, 5.0),
-        "legend_loc": "lower left",
+        "legend_loc": "upper left",
         "legend_anchor": None,
         "legend_fontsize": 16,
         "bulk": False,
@@ -346,14 +346,14 @@ def plot_patch_view(out_dir: Path, view: dict, family: int) -> Path:
     else:
         print(f"[skip] no Floquet rows found for family {family}")
 
-    ax.set_xlabel(r"real-space separation $\ell$")
+    ax.set_xlabel(r"$\text{real-space separation}~\ell$")
     ax.set_ylabel(r"$\|C_\ell\|_F$")
     if view["xlim"] is not None:
         ax.set_xlim(*view["xlim"])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.grid(True, which="both", alpha=0.25)
     ax.legend(
-        loc="upper right",
+        loc="lower center",
         fontsize=MULTISERIES_LEGEND_SIZE,
         framealpha=0.9,
         borderpad=0.45,
@@ -417,7 +417,7 @@ def plot_bent_decay(out_dir: Path) -> list[Path]:
     ax.set_xlabel(r"$\text{real-space separation}~\ell$")
     ax.set_ylabel(r"$\|C_\ell\|_F$")
     # ax.set_title(r"$\text{Bent waveguide: finite patches of different sizes}$")
-    ax.grid(True, which="both", alpha=0.25)
+    ax.grid(True, which="major", alpha=0.25)
     ax.legend(
         loc="upper right",
         fontsize=MULTISERIES_LEGEND_SIZE,
@@ -447,7 +447,7 @@ def plot_bent_decay(out_dir: Path) -> list[Path]:
         ax.set_xlabel(r"$\text{patch size }N$")
         ax.set_ylabel(r"$\text{relative error in}~|C_0|$")
         ax.set_title(r"$\text{Convergence of finite patch to infinite Floquet}$")
-        ax.grid(True, which="both", alpha=0.25)
+        ax.grid(True, which="major", alpha=0.25)
         ax.legend(loc="best", fontsize=12, framealpha=0.9)
         written.append(save_figure(fig, out_dir, "patch_convergence.pdf"))
 
@@ -489,7 +489,7 @@ def plot_mode_gallery(out_dir: Path) -> Path:
         )
         ax.set_title(
             f"j={index}   " + rf"$\mathrm{{Re}}\,\lambda={modes[index, 1]:.3g}$"
-            + f"\ncorner={modes[index, 5]:.2f}, part.={modes[index, 6]:.2f}",
+            + f"\ncorner={modes[index, 5]:.2f}, part.={modes[index, 7]:.2f}",
             fontsize=8,
         )
         ax.set_aspect("equal")

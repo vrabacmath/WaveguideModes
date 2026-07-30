@@ -31,6 +31,9 @@ namespace workflows {
 //                                    row-major -- the center resonator's 2x2 coupling blocks.
 //   patch_defect_resonances.csv      Re(lambda), Im(lambda), Re(omega), Im(omega) -- eig(C),
 //                                    omega = omega_0 + delta*lambda (finite defect resonances).
+// Wave speeds: v background, v_b crystal interior, v_bd defect interior. omega_0 = v_bd
+// j'_{m,1}/R_def and C carries v_bd^2; v_b does not enter the leading-order capacitance (the
+// cladding disks are off-resonant) but is kept for a uniform interface.
 void run_patch_capacitance(double radius = 0.35,
                            double defect_radius = 0.455,
                            double delta = 0.05,
@@ -38,7 +41,10 @@ void run_patch_capacitance(double radius = 0.35,
                            int n_defect = 10,
                            int n_clad = 4,
                            int fringe = 1,
-                           int points_per_disk = 16);
+                           int points_per_disk = 16,
+                           double v = 1.0,
+                           double v_b = 1.0,
+                           double v_bd = 1.0);
 
 }  // namespace workflows
 

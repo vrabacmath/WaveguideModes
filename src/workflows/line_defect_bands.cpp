@@ -125,11 +125,12 @@ std::pair<double, double> tracked_minimum(const Objective& f, double lo, double 
 void run_line_defect_bands_M(double radius, double defect_radius, double delta,
                              double first_band_lo, double first_band_hi,
                              double second_band_lo, double second_band_hi,
-                             double defect_band_hi, int num_alpha, int n_gauss) {
-    const cpxd v = 1.0, v_b = 1.0;
-    const int n_multipole = std::max(8, static_cast<int>(std::ceil(second_band_hi * radius)) + 7);
+                             double defect_band_hi, int num_alpha, int n_gauss,
+                             double v, double v_b, double v_bd) {
+    // the multipole cutoff tracks the largest exterior argument k*R = (omega/v)*R
+    const int n_multipole = std::max(8, static_cast<int>(std::ceil(second_band_hi * radius / v)) + 7);
     // point_defect_radius is unused for the line defect; pass a benign value.
-    Multipole multipole_M(n_multipole, n_gauss, radius, 0.97 * radius, defect_radius, v, v_b, delta);
+    Multipole multipole_M(n_multipole, n_gauss, radius, 0.97 * radius, defect_radius, v, v_b, v_bd, delta);
 
     std::cout << "Subwavelength line-defect bands (operator M): R=" << radius
               << ", R_defect=" << defect_radius << " (epsilon=" << (defect_radius - radius) / radius
@@ -252,20 +253,21 @@ bool near_dirichlet(double omega, const std::vector<double>& radii, double tol) 
 // Keep the rows with in_gap=1, near_dirichlet=0 and small sigma_min for the physical band.
 void run_line_defect_bands_neumann(double radius, double defect_radius, double delta,
                                    int max_m, double window_factor, int num_alpha,
-                                   int n_gauss, int n_multipole, double sub_lo, double sub_hi) {
-    const cpxd v = 1.0, v_b = 1.0;
+                                   int n_gauss, int n_multipole, double sub_lo, double sub_hi,
+                                   double v, double v_b, double v_bd) {
     const double contour = 1e-5;       // small Im(omega): enough regularization without merging close dips
     const double dir_tol = 0.06;       // exclude within this of an exterior Dirichlet eigenvalue
     const double gap_threshold = 0.25; // gap if min_ay(sigma_min A) > this * median_ay (see in_gap)
 
     // frequency-appropriate multipole cutoff: too many orders -> vanishing J_n(kR) contamination.
+    // The relevant argument is the exterior k*R = (omega/v)*R.
     double omega_hi = 0.0;
     for (int mm = 0; mm <= max_m; ++mm)
-        omega_hi = std::max(omega_hi, neumann_zero(mm) / defect_radius + window_factor * delta);
+        omega_hi = std::max(omega_hi, v_bd * neumann_zero(mm) / defect_radius + window_factor * delta);
     if (n_multipole <= 0)
-        n_multipole = std::max(max_m + 3, static_cast<int>(std::ceil(omega_hi * radius)) + 3);
+        n_multipole = std::max(max_m + 3, static_cast<int>(std::ceil(omega_hi * radius / v)) + 3);
 
-    Multipole multipole_M(n_multipole, n_gauss, radius, 0.97 * radius, defect_radius, v, v_b, delta);
+    Multipole multipole_M(n_multipole, n_gauss, radius, 0.97 * radius, defect_radius, v, v_b, v_bd, delta);
 
     auto defect_sigma = [&](double omega, double alpha_x) {
         return smallest_singular_value(multipole_M.crystal_line_M_operator(cpxd(omega, contour), alpha_x));
@@ -289,13 +291,19 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
         std::sort(vals.begin(), vals.end());
         return vals.front() > gap_threshold * vals[nay / 2];  // min > threshold * median => gap
     };
-    const std::vector<double> dir_radii = {radius, defect_radius};
+    // near_dirichlet works with the zeros of J_p(omega * R_eff), so a boundary probed at
+    // wavenumber omega/c contributes the EFFECTIVE radius R/c: the exterior representation is
+    // spuriously singular at omega = v j_{p,q}/R and v j_{p,q}/R_def, the crystal interior at
+    // omega = v_b j_{p,q}/R, and the defect interior at omega = v_bd j_{p,q}/R_def. With all
+    // speeds 1 this reduces to the old {R, R_def}.
+    const std::vector<double> dir_radii = {radius / v, defect_radius / v,
+                                           radius / v_b, defect_radius / v_bd};
 
     // Subwavelength (static-monopole) band uses its own, low-frequency-appropriate multipole cutoff
     // (at low omega the high-order J_n(kR) contamination is worse, so use fewer orders).
     const bool do_sub = sub_hi > sub_lo;
-    const int n_sub = std::max(3, static_cast<int>(std::ceil(sub_hi * radius)) + 2);
-    Multipole multipole_sub(n_sub, n_gauss, radius, 0.97 * radius, defect_radius, v, v_b, delta);
+    const int n_sub = std::max(3, static_cast<int>(std::ceil(sub_hi * radius / v)) + 2);
+    Multipole multipole_sub(n_sub, n_gauss, radius, 0.97 * radius, defect_radius, v, v_b, v_bd, delta);
     auto sub_sigma = [&](double omega, double alpha_x) {
         return smallest_singular_value(multipole_sub.crystal_line_M_operator(cpxd(omega, contour), alpha_x));
     };
@@ -304,7 +312,7 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
               << ", R_def=" << defect_radius << ", delta=" << delta << ", N_multipole=" << n_multipole
               << ", search +/-" << window_factor << "*delta around m=0.." << max_m << "\n";
     for (int m = 0; m <= max_m; ++m)
-        std::cout << "   m=" << m << ": omega_0=" << neumann_zero(m) / defect_radius
+        std::cout << "   m=" << m << ": omega_0=" << v_bd * neumann_zero(m) / defect_radius
                   << "  (multiplicity " << (m == 0 ? 1 : 2) << ")\n";
 
     std::ofstream out("defect_neumann_bands.csv");
@@ -316,7 +324,7 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
         if (std::abs(alpha_x) < 1e-9) alpha_x = 1e-6;
 
         for (int m = 0; m <= max_m; ++m) {
-            const double omega0 = neumann_zero(m) / defect_radius;  // v_b = 1
+            const double omega0 = v_bd * neumann_zero(m) / defect_radius;
             const double W = window_factor * delta * std::max(1, m);
             const double lo = omega0 - W, hi = omega0 + W;
             const int mult = (m == 0) ? 1 : 2;

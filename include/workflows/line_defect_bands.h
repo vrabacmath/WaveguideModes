@@ -42,6 +42,9 @@ namespace workflows {
 //                  first-band edge at each alpha_x
 //   num_alpha      number of alpha_x subintervals; the CSVs contain num_alpha + 1 samples
 //   n_gauss        Gauss quadrature order for the alpha_y integral in M^eps
+//   v              wave speed of the background medium
+//   v_b            interior wave speed of the crystal resonators
+//   v_bd           interior wave speed of the defect resonators
 void run_line_defect_bands_M(double radius = 0.05,
                              double defect_radius = 0.04,
                              double delta = 2e-4,
@@ -51,7 +54,10 @@ void run_line_defect_bands_M(double radius = 0.05,
                              double second_band_hi = 3.5,
                              double defect_band_hi = 0.31,
                              int num_alpha = 30,
-                             int n_gauss = 21);
+                             int n_gauss = 21,
+                             double v = 1.0,
+                             double v_b = 1.0,
+                             double v_bd = 1.0);
 
 // Higher-frequency line-defect bands from the multipole operator M^eps, searched AROUND the defect
 // resonator's interior Neumann resonances omega_0 = v_b * j'_{m,1}/R_def (dipole, quadrupole, ...),
@@ -66,6 +72,8 @@ void run_line_defect_bands_M(double radius = 0.05,
 // Writes "defect_neumann_bands.csv": m, alpha_x, omega, sigma_min(M), in_gap, near_dirichlet
 //   (m = -1 subwavelength, 0 breathing, 1 dipole, 2 quadrupole, ...).
 // n_multipole = 0 auto-selects a frequency-appropriate cutoff (avoids high-order J_n(kR) contamination).
+// v is the background wave speed, v_b the crystal resonators' interior speed, and v_bd the
+// defect resonators' interior speed; the searches recenter on omega_0 = v_bd * j'_{m,1}/R_def.
 void run_line_defect_bands_neumann(double radius = 0.35,
                                    double defect_radius = 0.455,
                                    double delta = 0.001,
@@ -75,7 +83,10 @@ void run_line_defect_bands_neumann(double radius = 0.35,
                                    int n_gauss = 20,
                                    int n_multipole = 0,
                                    double sub_lo = 0.5,
-                                   double sub_hi = 3.6);
+                                   double sub_hi = 3.6,
+                                   double v = 1.0,
+                                   double v_b = 1.0,
+                                   double v_bd = 1.0);
 
 }  // namespace workflows
 

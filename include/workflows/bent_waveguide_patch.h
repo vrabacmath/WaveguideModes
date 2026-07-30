@@ -40,7 +40,7 @@ struct BentPatch {
     MatrixXcd C;  // (modes*n_main)^2: exterior DtN projected onto the defect-mode subspace
     VectorXd sigma;
 
-    cpxd k, kVb, kV;
+    cpxd k, kVb, kV, kVbd;  // kV: background speed, kVb: crystal interior, kVbd: defect interior
     double omega0, beta, Anorm, radius, defect_radius;
     int L, L_main, center, modes, N, m_ang, Ntot;
 
@@ -53,8 +53,12 @@ struct BentPatch {
 // Assemble the patch and its exterior operators. `fringe` outer layers of the defect chain are
 // kept in the mesh (so they still screen) but excluded from main_indices, leaving the
 // 2*n_defect - 1 interior sites free of patch-edge artefacts.
+// Wave speeds: v background, v_b crystal interior, v_bd defect interior. omega_0 = v_bd
+// j'_{m,1}/R_def and C carries v_bd^2; v_b does not enter the leading-order capacitance but is
+// stored on the patch (kVb) for the exact workflows.
 BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n_defect,
-                           int n_clad, int fringe, int points_per_disk, bool verbose = true);
+                           int n_clad, int fringe, int points_per_disk, double v = 1.0,
+                           double v_b = 1.0, double v_bd = 1.0, bool verbose = true);
 
 }  // namespace workflows
 

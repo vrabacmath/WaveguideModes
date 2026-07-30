@@ -39,13 +39,15 @@ struct Disk {
 
 void run_patch_capacitance(double radius, double defect_radius, double delta,
                            int m_ang, int n_defect, int n_clad, int fringe,
-                           int points_per_disk) {
+                           int points_per_disk, double v, [[maybe_unused]] double v_b,
+                           double v_bd) {
+    // v_b (crystal interior speed) does not enter the leading-order capacitance: the cladding
+    // disks are off-resonant at omega_0 and contribute only through the exterior operators.
     const int N = std::max(points_per_disk, 8);
     const int modes = (m_ang == 0) ? 1 : 2;
     const double beta = first_neumann_zero(m_ang);
-    const cpxd kVb = 1.0, kV = 1.0;
-    const double omega0 = std::abs(kVb) * beta / defect_radius;
-    const cpxd k = cpxd(omega0, 1e-3) / kV;
+    const double omega0 = v_bd * beta / defect_radius;
+    const cpxd k = cpxd(omega0, 1e-3) / v;
 
     // Keep fringe defect disks in the mesh so they screen, but omit them from the projected C.
     const int L = n_defect + fringe;
@@ -107,7 +109,7 @@ void run_patch_capacitance(double radius, double defect_radius, double delta,
     ops.Kstar(Kstar, k);
     const MatrixXcd X = S.partialPivLu().solve(G);
     const MatrixXcd LamG = 0.5 * X + Kstar * X;
-    const MatrixXcd C = -(kVb * kVb) / (2.0 * omega0) * (G.adjoint() * (sigma.asDiagonal() * LamG));
+    const MatrixXcd C = -(v_bd * v_bd) / (2.0 * omega0) * (G.adjoint() * (sigma.asDiagonal() * LamG));
 
     const std::string filename = "patch_capacitance_couplings" + std::to_string(n_defect) + "_" +
                                  std::to_string(n_clad) + "_" + std::to_string(fringe) + ".csv";

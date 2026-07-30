@@ -30,6 +30,10 @@ namespace workflows {
 //
 // grid_points <= 0 skips the field evaluation entirely (resonance table + fingerprint only) and
 // leaves any existing field CSVs untouched -- use this for validation sweeps.
+//
+// Wave speeds: v background, v_b crystal interior, v_bd defect interior. Interior fields are
+// local to each disk, so A(omega) mixes them row-wise: boundary rows of defect disks carry the
+// interior layers at k_bd = omega/v_bd, cladding rows at k_b = omega/v_b.
 void run_bent_waveguide_exact(double radius = 0.35,
                               double defect_radius = 0.455,
                               double delta = 0.05,
@@ -41,7 +45,10 @@ void run_bent_waveguide_exact(double radius = 0.35,
                               int mode_index = -1,
                               int grid_points = 200,
                               double seed_re = -1.0,
-                              double seed_im = 0.0);
+                              double seed_im = 0.0,
+                              double v = 1.0,
+                              double v_b = 1.0,
+                              double v_bd = 1.0);
 
 }  // namespace workflows
 

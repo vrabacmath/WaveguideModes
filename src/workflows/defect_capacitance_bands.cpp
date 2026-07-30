@@ -18,8 +18,6 @@ using namespace Eigen;
 
 namespace {
 
-const cpxd kV = 1.0, kVb = 1.0;  // exterior / interior wave speeds (mu_0, mu_1)
-
 // First positive zero of J_m' = interior Neumann eigenvalue index (radial order n=1).
 double first_neumann_zero(int m) {
     switch (m) {
@@ -40,7 +38,10 @@ cpxd cyl_j_prime(int n, cpxd z) {
 
 void run_defect_capacitance_bands(double radius, double defect_radius, double delta,
                                   int max_m, int n_rows, int points_per_disk, int num_alpha,
-                                  double alpha_lo_frac, double alpha_hi_frac) {
+                                  double alpha_lo_frac, double alpha_hi_frac,
+                                  double v, [[maybe_unused]] double v_b, double v_bd) {
+    // v_b (crystal interior speed) does not enter the leading-order capacitance: the crystal
+    // disks are off-resonant at omega_0 and contribute only through the exterior operators.
     // --- line-defect supercell, periodic in x (period 1) ---------------------------------
     // A column of disks at y = -K..K (K = n_rows). The n=0 disk is the defect (radius
     // defect_radius); all others are crystal disks (radius). x-quasi-periodicity replicates
@@ -90,7 +91,7 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
     std::vector<ModeFamily> families;
     for (int m_ang = 0; m_ang <= max_m; ++m_ang) {
         const double beta = first_neumann_zero(m_ang);
-        ModeFamily fam{m_ang, std::abs(kVb) * beta / defect_radius, (m_ang == 0) ? 1 : 2,
+        ModeFamily fam{m_ang, v_bd * beta / defect_radius, (m_ang == 0) ? 1 : 2,
                        MatrixXcd::Zero(Ntot, (m_ang == 0) ? 1 : 2)};
         const double Anorm =
             1.0 / (std::sqrt(M_PI) * defect_radius
@@ -102,7 +103,7 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
                                                         * double(m_ang) * 2. * M_PI / double(N) * double(loc));
         families.push_back(std::move(fam));
         std::cout << "   m=" << m_ang << ": omega_0=" << families.back().omega0
-                  << " (= " << beta << "/R_def), multiplicity " << families.back().modes << "\n";
+                  << " (= v_bd * " << beta << "/R_def), multiplicity " << families.back().modes << "\n";
     }
 
 
@@ -131,7 +132,7 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
             const double omega0 = fam.omega0;
             const int modes = fam.modes;
             const double W = 10.0 * delta;  // family window half-width (as line-defect-neumann)
-            const cpxd k = cpxd(omega0, 1e-3) / kV;  // small Im(k) regularises the periodic G^alpha
+            const cpxd k = cpxd(omega0, 1e-3) / v;  // small Im(k) regularises the periodic G^alpha
 
             // Frequency-dependent capacitance matrix (Fabry-Perot, arXiv:2605.27572 eq. 4.11):
             //   Lambda_ext = (1/2 I + K*) S^{-1},   k = omega_0 / v
@@ -142,7 +143,7 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
             const MatrixXcd X = S.partialPivLu().solve(fam.G);
             const MatrixXcd LamG = 0.5 * X + Kstar * X;   // Lambda_ext G = (1/2 + K*) S^{-1} G
             const MatrixXcd Creg =
-                -(kVb * kVb) / (2.0 * omega0) * (fam.G.adjoint() * (sigma.asDiagonal() * LamG));
+                -(v_bd * v_bd) / (2.0 * omega0) * (fam.G.adjoint() * (sigma.asDiagonal() * LamG));
 
             // complex symmetry - should be symmetric
             const double herm = (Creg - Creg.adjoint()).norm();
