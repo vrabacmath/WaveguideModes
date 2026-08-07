@@ -108,6 +108,7 @@ def main():
     axis = np.loadtxt(resolve(f"{prefix}_axis.csv"), delimiter=",")
     mesh = np.loadtxt(resolve("bent_waveguide_mesh.csv"), delimiter=",")
     bx, by = mesh[0], mesh[1]
+    print("mag.shape", mag.shape, "real.shape", real.shape, "axis.shape", axis.shape, "mesh.shape", mesh.shape)
 
     # The mode diagnostics file belongs to the O(delta) workflow ONLY. For any other prefix
     # (e.g. the exact solve) it describes a different reconstruction -- the exact state can even

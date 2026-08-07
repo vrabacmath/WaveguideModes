@@ -16,9 +16,7 @@ namespace workflows {
 
 using namespace Eigen;
 
-namespace {
-
-// First positive zero of J_m' = interior Neumann eigenvalue index (radial order n=1).
+// First positive zero j'_{m,1} of J_m' = interior Neumann eigenvalue index (radial order n=1).
 double first_neumann_zero(int m) {
     switch (m) {
         case 0: return 3.8317059702;  // breathing (= j_{1,1})
@@ -34,23 +32,20 @@ cpxd cyl_j_prime(int n, cpxd z) {
                     : 0.5 * (bessel::cyl_j(n - 1, z) - bessel::cyl_j(n + 1, z));
 }
 
-}  // namespace
-
 void run_defect_capacitance_bands(double radius, double defect_radius, double delta,
                                   int max_m, int n_rows, int points_per_disk, int num_alpha,
                                   double alpha_lo_frac, double alpha_hi_frac,
                                   double v, [[maybe_unused]] double v_b, double v_bd) {
     // v_b (crystal interior speed) does not enter the leading-order capacitance: the crystal
     // disks are off-resonant at omega_0 and contribute only through the exterior operators.
-    // --- line-defect supercell, periodic in x (period 1) ---------------------------------
+    // --- line defect supercell, periodic in x (period 1) ---------------------------------
     // A column of disks at y = -K..K (K = n_rows). The n=0 disk is the defect (radius
     // defect_radius); all others are crystal disks (radius). x-quasi-periodicity replicates
-    // the column into a (2K+1)-row crystal slab carrying a single defect ROW at y=0 -- the
-    // line defect. As K grows the slab -> the infinite crystal and the defect mode becomes
-    // exactly bound (its radiative width Im(omega) -> 0).
+    // the column into a (2K+1)-row crystal slab carrying a single defect row at y=0 -- the
+    // line defect.
     const int N = points_per_disk;
-    const int nd = 2 * n_rows + 1;        // disks in the supercell
-    const int defect_disk = n_rows;       // index of the y=0 (defect) disk
+    const int nd = 2 * n_rows + 1;    // disks in the supercell
+    const int defect_disk = n_rows;   // index of the y=0 (defect) disk
 
     std::vector<double> disk_radius(nd);
     std::vector<Vector2d> disk_center(nd);
@@ -109,18 +104,13 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
 
     MatrixXcd S, Kstar;  // workspace shared by all assemblies
 
-    // std::ofstream out("defect_capacitance_bands.csv");
     std::ofstream out_lo("defect_capacitance_bands_leading.csv");
     std::ofstream out_cap("capacitance_matrix_per_alpha.csv");
     out_cap.setf(std::ios::scientific);
     out_cap.precision(10);
-    // out.setf(std::ios::scientific);
-    // out.precision(10);
     out_lo.setf(std::ios::scientific);
     out_lo.precision(10);
 
-    // Continuation seeds from the previous alpha, one root set per mode family.
-    std::vector<std::vector<cpxd>> prev_roots(families.size());
     for (int a = 0; a < num_alpha; ++a) {
         const double frac = (num_alpha > 1) ? static_cast<double>(a) / (num_alpha - 1) : 0.0;
         double alpha = 2. * M_PI * (alpha_lo_frac + (alpha_hi_frac - alpha_lo_frac) * frac);
@@ -131,13 +121,12 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
             const ModeFamily& fam = families[fi];
             const double omega0 = fam.omega0;
             const int modes = fam.modes;
-            const double W = 10.0 * delta;  // family window half-width (as line-defect-neumann)
             const cpxd k = cpxd(omega0, 1e-3) / v;  // small Im(k) regularises the periodic G^alpha
 
             // Frequency-dependent capacitance matrix (Fabry-Perot, arXiv:2605.27572 eq. 4.11):
             //   Lambda_ext = (1/2 I + K*) S^{-1},   k = omega_0 / v
             //   C^reg_{pq} = -(v_b^2 / 2 omega_0) <Lambda_ext[g_q], g_p>_{dD}
-            // The boundary inner product <.,.>_{dD} is the quadrature sum (diag(sigma)).
+            // The boundary inner product <.,.>_{dD} using quadrature, weighted sum (diag(sigma)).
             ops.PeriodicS(S, k, alpha, 1.0);
             ops.PeriodicKstar(Kstar, k, alpha, 1.0);
             const MatrixXcd X = S.partialPivLu().solve(fam.G);
@@ -182,11 +171,8 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
             out_cap << "\n";
         }
     }
-    // out.close();
     out_lo.close();
     out_cap.close();
-    // std::cout << "[wrote] defect_capacitance_bands.csv (exact transmission roots), "
-    //              "defect_capacitance_bands_leading.csv (leading-order seeds)\n";
     std::cout << "[wrote] defect_capacitance_bands_leading.csv (leading-order seeds), "
                  "capacitance_matrix_per_alpha.csv (C^reg per alpha)\n";
 }

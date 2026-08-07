@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FormatStrFormatter
 
 ROOT = Path(__file__).resolve().parents[1]
 HERE = Path.cwd()
@@ -39,7 +40,7 @@ MULTISERIES_LEGEND_SIZE = 10
 BAND_VIEWS = [
     {
         "output": "bands.pdf",
-        "title": r"$\text{Line defect bands: } M^\varepsilon \text{ vs. capacitance}$",
+        "title": r"$\text{Line defect bands: } M \text{ vs. capacitance}$",
         "ylim": (0.0, 7.5),
         "families": None,
         "figsize": (6.5, 9.0),
@@ -51,7 +52,7 @@ BAND_VIEWS = [
     {
         "output": "dipole.pdf",
         "title": "Dipole bands",
-        "ylim": (4.044, 4.051),
+        "ylim":(4.044, 4.051),
         "families": [1],
         "figsize": (7.5, 5.0),
         "legend_loc": "lower left",
@@ -63,6 +64,7 @@ BAND_VIEWS = [
         "output": "quadrupole.pdf",
         "title": "Quadrupole bands",
         "ylim": (6.71, 6.72),
+        "y_tick_format": "%.3f",
         "families": [2],
         "figsize": (7.5, 5.0),
         "legend_loc": "upper left",
@@ -173,7 +175,7 @@ def plot_projected_bulk(ax):
         marker=".",
         linestyle="None",
         c="0.65",
-        label=r"Bulk bands projected over $\alpha_y$",
+        label=r"Bulk bands projected over $\alpha_2$",
     )
 
 
@@ -184,11 +186,11 @@ def plot_neumann_bands(ax, families=None):
         data = data[np.isin(data[:, 0].astype(int), families)]
 
     labels = {
-        -1: r"$M^\varepsilon$: subwavelength",
-        0: r"$M^\varepsilon$: $m=0$",
-        1: r"$M^\varepsilon$: $m=1$",
-        2: r"$M^\varepsilon$: $m=2$",
-        3: r"$M^\varepsilon$: $m=3$",
+        -1: r"$M$: subwavelength",
+        0: r"$M$: $\mathfrak{m}=0$",
+        1: r"$M$: $\mathfrak{m}=1$",
+        2: r"$M$: $\mathfrak{m}=2$",
+        3: r"$M$: $\mathfrak{m}=3$",
     }
     colors = {-1: "tab:green", 0: "tab:brown", 1: "tab:red", 2: "tab:purple", 3: "tab:orange"}
 
@@ -202,7 +204,7 @@ def plot_neumann_bands(ax, families=None):
             mec=colors.get(m, "tab:gray"),
             ms=6,
             mew=1.3,
-            label=labels.get(m, rf"$M^\varepsilon$: $m={m}$"),
+            label=labels.get(m, rf"$M$: $\mathfrak{m}={m}$"),
         )
 
 
@@ -224,11 +226,11 @@ def plot_band_view(out_dir: Path, view: dict) -> Path:
     plot_neumann_bands(ax, view["families"])
     plot_capacitance_bands(ax, view["families"])
 
-    ax.set_xlabel(r"$\alpha_x$")
+    ax.set_xlabel(r"$\alpha_1$")
     ax.set_ylabel(r"$\omega$")
     ax.set_xlim(0, np.pi)
     ax.set_xticks([0, np.pi])
-    ax.set_xticklabels([r"$\Gamma$", r"$X$"])
+    ax.set_xticklabels([r"$0$", r"$\pi$"])
     ax.set_ylim(*view["ylim"])
     ax.set_title(view["title"])
     ax.grid(True, alpha=0.25)
@@ -245,6 +247,9 @@ def plot_band_view(out_dir: Path, view: dict) -> Path:
     if view["legend_anchor"] is not None:
         legend_kwargs["bbox_to_anchor"] = view["legend_anchor"]
     ax.legend(handles, labels, **legend_kwargs)
+
+    if view.get("y_tick_format") is not None:
+        ax.yaxis.set_major_formatter(FormatStrFormatter(view["y_tick_format"]))
 
     return save_figure(fig, out_dir, view["output"], dpi=300)
 
@@ -346,14 +351,14 @@ def plot_patch_view(out_dir: Path, view: dict, family: int) -> Path:
     else:
         print(f"[skip] no Floquet rows found for family {family}")
 
-    ax.set_xlabel(r"$\text{real-space separation}~\ell$")
-    ax.set_ylabel(r"$\|C_\ell\|_F$")
+    ax.set_xlabel(r"$\text{real-space separation}~j_1 - j_1^\prime$")
+    ax.set_ylabel(r"$\|C_{j_1 - j_1^\prime}\|_F$")
     if view["xlim"] is not None:
         ax.set_xlim(*view["xlim"])
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.grid(True, which="both", alpha=0.25)
     ax.legend(
-        loc="lower center",
+        loc="best",
         fontsize=MULTISERIES_LEGEND_SIZE,
         framealpha=0.9,
         borderpad=0.45,
@@ -414,8 +419,8 @@ def plot_bent_decay(out_dir: Path) -> list[Path]:
 
     ax.set_xlim(-9, 9)
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.set_xlabel(r"$\text{real-space separation}~\ell$")
-    ax.set_ylabel(r"$\|C_\ell\|_F$")
+    ax.set_xlabel(r"$\text{real-space separation}~j_1 - j_1^\prime - j_2 + j_2^\prime$")
+    ax.set_ylabel(r"$\|C_{j_1 - j_1^\prime - j_2 + j_2^\prime}\|_F$")
     # ax.set_title(r"$\text{Bent waveguide: finite patches of different sizes}$")
     ax.grid(True, which="major", alpha=0.25)
     ax.legend(
@@ -441,11 +446,11 @@ def plot_bent_decay(out_dir: Path) -> list[Path]:
             ms=PATCH_MARKER_SIZE,
             mfc="none",
             mew=PATCH_MARKER_EDGE_WIDTH,
-            label=r"$|C_0|$ relative error vs largest patch",
+            label=r"$|C(0)|$ relative error vs largest patch",
         )
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.set_xlabel(r"$\text{patch size }N$")
-        ax.set_ylabel(r"$\text{relative error in}~|C_0|$")
+        ax.set_ylabel(r"$\text{relative error in}~|C(0)|$")
         ax.set_title(r"$\text{Convergence of finite patch to infinite Floquet}$")
         ax.grid(True, which="major", alpha=0.25)
         ax.legend(loc="best", fontsize=12, framealpha=0.9)

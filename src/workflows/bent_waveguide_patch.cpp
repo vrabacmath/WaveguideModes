@@ -1,4 +1,5 @@
 #include "workflows/bent_waveguide_patch.h"
+#include "workflows/defect_capacitance_bands.h"
 
 #include <cmath>
 #include <complex>
@@ -9,16 +10,6 @@
 namespace workflows {
 
 using namespace Eigen;
-
-double first_neumann_zero(int m) {
-    switch (m) {
-        case 0: return 3.8317059702;  // breathing (= j_{1,1})
-        case 1: return 1.8411837813;  // dipole
-        case 2: return 3.0542369282;  // quadrupole
-        case 3: return 4.2011889412;  // octupole
-        default: return 1.8411837813;
-    }
-}
 
 BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n_defect,
                            int n_clad, int fringe, int points_per_disk, double v, double v_b,
