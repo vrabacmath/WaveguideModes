@@ -8,27 +8,49 @@
 #include "Eigen/Dense"
 #include "boundary_mesh.h"
 #include "spectral_operators.h"
+#include "workflows/bessel_helpers.h"
 
 namespace workflows {
 
 using namespace Eigen;
-
-// First positive zero of J_m' = interior Neumann eigenvalue index (radial order n = 1).
-double first_neumann_zero(int m);
 
 struct Disk {
     double r;
     Vector2d c;
 };
 
-// Everything the bent-waveguide workflows share: the L-shaped defect chain embedded in a
-// cladding crystal, plus the exterior operators evaluated on it.
-//
-// The key field for field reconstruction is X = S^{-1} G. G is nonzero only on the defect
-// disks, but S^{-1} is dense, so X is nonzero on EVERY boundary point -- the cladding rows
-// carry the induced density that enforces the cladding's (sound-soft, at leading order)
-// boundary condition. So the cladding is fully represented here even though it contributes
-// no rows or columns to C.
+/* The the exterior operators evaluated on an L-shaped defect chain in a crystal
+are shared by all workflows with a bent waveguide.
+
+The key field for field reconstruction is X = S^{-1} G. G is nonzero only on the defect
+disks, but S^{-1} is dense, so X is nonzero on every boundary point - the cladding rows
+carry the induced density that enforces the cladding's (sound-soft, at leading order)
+boundary condition. So the cladding is fully represented here up to order delta
+even though it contributes no rows or columns to C. 
+
+Members:
+* mesh = The boundary mesh for the patch
+* disks = List of all disks in the patch
+* defect_index =  Mapping from lattice sites to disk indices
+* main_indices = Indices of the main defect disks in path order
+* G = The coupling matrix for the defect modes 
+* X = The single-layer density on all disks
+* C = The exterior DtN operator projected onto the defect-mode subspace
+* sigma = The boundary condition values
+* k, kVb, kV, kVbd = Wave numbers for the background, crystal interior, and defect interior
+* omega0 = The resonant frequency of the defect
+* beta = The first positive zero of the derivative of the Bessel function J_m
+* Anorm = Normalization constant for the defect modes
+* radius = Radius of the cladding disks
+* defect_radius = Radius of the defect disks
+* L = Half-length of the defect chain
+* L_main = Half-length of the main defect chain (excluding fringe)
+* center = Index of the center disk in the defect chain
+* modes = Number of defect modes (1 for monopole, 2 for dipole, etc.)
+* N = Number of quadrature points per disk boundary
+* m_ang = Angular order of the defect modes
+* Ntot = Total number of boundary segments in the patch
+*/
 struct BentPatch {
     BoundaryMesh mesh;
     std::vector<Disk> disks;
@@ -50,12 +72,20 @@ struct BentPatch {
     }
 };
 
-// Assemble the patch and its exterior operators. `fringe` outer layers of the defect chain are
-// kept in the mesh (so they still screen) but excluded from main_indices, leaving the
-// 2*n_defect - 1 interior sites free of patch-edge artefacts.
-// Wave speeds: v background, v_b crystal interior, v_bd defect interior. omega_0 = v_bd
-// j'_{m,1}/R_def and C carries v_bd^2; v_b does not enter the leading-order capacitance but is
-// stored on the patch (kVb) for the exact workflows.
+/* Assemble the patch and its exterior operators. `fringe` outer layers of the defect chain are
+kept in the mesh but excluded from main_indices.
+
+Parameters:
+* radius = radius of the cladding disks
+* defect_radius = radius of the defect disks
+* m_ang = order, monopole, dipole, quadrupole...
+* n_defect = number of defect disks along each arm of the L (total = 2*n_defect + 1)
+* n_clad = number of cladding disks along each axis (total = (2*n_clad + 1)^2 - (2*n_defect + 1))
+* fringe = number of boundary defect disks to keep in the mesh but drop from C
+* points_per_disk = number of quadrature points per disk boundary
+* v = wave speed in free space
+* v_b = wave speed in the cladding crystal interior
+* v_bd = wave speed in the defect interior*/
 BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n_defect,
                            int n_clad, int fringe, int points_per_disk, double v = 1.0,
                            double v_b = 1.0, double v_bd = 1.0, bool verbose = true);

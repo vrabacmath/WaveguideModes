@@ -54,6 +54,7 @@ void run_defect_capacitance_bands(double radius = 0.35,
                                   double v_b = 1.0,
                                   double v_bd = 1.0);
 
+
 }  // namespace workflows
 
 #endif  // SUBWAVELENGTHRESONATORS_WORKFLOWS_DEFECT_CAPACITANCE_BANDS_H

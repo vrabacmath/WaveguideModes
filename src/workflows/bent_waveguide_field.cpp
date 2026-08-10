@@ -63,23 +63,23 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
     std::cout << "  eigenmodes of C (j, Re lambda, corner weight, participation):\n";
     for (int j = 0; j < static_cast<int>(order.size()); ++j) {
         const VectorXcd v = vecs.col(order[j]);
-        const double n2 = v.squaredNorm();
+        const double vnorm2 = v.squaredNorm();
 
         // Site weights: sum the |v|^2 of that site's mode block.
         std::vector<double> w(n_main, 0.0);
         for (int q = 0; q < n_main; ++q)
-            for (int s = 0; s < modes; ++s) w[q] += std::norm(v(modes * q + s));
+            for (int s = 0; s < modes; ++s) w[q] += std::norm(v(modes * q + s)); // norm is squared MAGNITUDE!
 
         double s2 = 0.0;
-        for (double wq : w) s2 += (wq / n2) * (wq / n2);
+        for (double wq : w) s2 += (wq / vnorm2) * (wq / vnorm2);
         const double participation = 1.0 / s2;
-        corner_weight[j] = w[p.center] / n2;
+        corner_weight[j] = w[p.center] / vnorm2;
 
         const cpxd l = lam(order[j]);
         const cpxd omega = p.omega0 + delta * l;
         out_m << j << "," << l.real() << "," << l.imag() << "," << omega.real() << ","
               << omega.imag() << "," << corner_weight[j] << "," << participation;
-        for (int q = 0; q < n_main; ++q) out_m << "," << w[q] / n2;
+        for (int q = 0; q < n_main; ++q) out_m << "," << w[q] / vnorm2;
         out_m << "\n";
         std::cout << "    j=" << j << "  Re(lambda)=" << l.real()
                   << "  corner=" << corner_weight[j] << "  participation=" << participation << "\n";
@@ -97,7 +97,7 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
 
     // --- the density on the WHOLE cluster --------------------------------------------------
     // psi is nonzero on cladding rows too: that is the induced density enforcing the cladding's
-    // sound-soft condition, i.e. the cladding's contribution to the field.
+    // sound-soft condition 
     const VectorXcd psi = p.X * vmode;
 
     double defect_rows = 0.0, other_rows = 0.0;
@@ -110,7 +110,7 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
               << ", on all other disks = " << std::sqrt(other_rows) << "\n";
 
     // --- evaluate on a grid ----------------------------------------------------------------
-    // Only disks carrying a mode amplitude are "resonant"; the fringe defect disks and every
+    // Only disks carrying a mode amplitude are "resonant." the fringe defect disks and every
     // cladding disk have zero Dirichlet data, so their interior field is zero at leading order.
     std::vector<int> slot_of_disk(p.disks.size(), -1);
     for (int q = 0; q < n_main; ++q) slot_of_disk[p.main_indices[q]] = q;
@@ -119,7 +119,7 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
     const int Ng = std::max(grid_points, 16);
     // Nystrom evaluation of a single-layer potential degrades within ~one node spacing of the
     // boundary, so blank the exterior there rather than plotting quadrature error.
-    const double h = 2.0 * M_PI * std::max(radius, defect_radius) / double(p.N);
+    const double h = 2.0 * M_PI * std::max(radius, defect_radius) / double(p.N); // one node spacing on the largest disk
     const double Jm_beta = bessel::cyl_j(m_ang, p.beta);
 
     std::vector<double> axis(Ng);
@@ -160,8 +160,8 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
                 continue;
             }
             if (loc.kind == Location::ResonantDisk) {
-                // Interior Neumann mode, normalised so its trace at rho = R_def is exactly the
-                // corresponding column of G -- hence u is continuous across the boundary.
+                // Interior Neumann mode, normalized like G so its trace at rho = R_def is exactly the
+                // corresponding column of G so u is continuous across the boundary.
                 const double radial = bessel::cyl_j(m_ang, p.beta * loc.rho / defect_radius) / Jm_beta;
                 for (int s = 0; s < modes; ++s) {
                     const double sg = (s == 0) ? 1.0 : -1.0;
@@ -203,24 +203,19 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
     std::cout << "  reflection symmetry ||u(x,y)|-|u(y,x)||_max = " << sym
               << "  (relative " << (scale > 0 ? sym / scale : 0.0) << ")\n";
 
-    // Continuity of the interior branch with the imposed trace. Both sides are analytic, so this
-    // isolates the normalisation (Anorm, J_m(beta)) with no quadrature involved: at rho = R_def
-    // the radial factor is 1 and the interior branch must reproduce column-combination G v
-    // exactly. NOT tested by evaluating the exterior potential just off the boundary -- plain
-    // Nystrom evaluation of a single-layer potential is invalid there, which is what the mask is
-    // for, so such a test would only measure quadrature error.
+    // Trace and G assembly double-check.
     {
         const int q = p.center;
         const int s0 = p.mesh.get_start_index(p.main_indices[q]);
         const VectorXcd trace = p.G * vmode;
         double worst = 0.0, ref = 0.0;
         for (int loc = 0; loc < p.N; ++loc) {
-            const double th = 2.0 * M_PI * double(loc) / double(p.N);
+            const double theta = 2.0 * M_PI * double(loc) / double(p.N);
             cpxd u_in = 0.0;
             for (int s = 0; s < modes; ++s) {
                 const double sg = (s == 0) ? 1.0 : -1.0;
                 u_in += vmode(modes * q + s) * p.Anorm *
-                        std::exp(cpxd(0, 1.0) * sg * double(m_ang) * th);
+                        std::exp(cpxd(0, 1.0) * sg * double(m_ang) * theta);
             }
             worst = std::max(worst, std::abs(u_in - trace(s0 + loc)));
             ref = std::max(ref, std::abs(u_in));
@@ -228,12 +223,6 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
         std::cout << "  interior branch vs imposed trace: max|du| = " << worst << "  (relative "
                   << (ref > 0 ? worst / ref : 0.0) << ")\n";
     }
-
-    // Exterior quadrature accuracy is NOT checked by comparing against the boundary trace at
-    // small offsets -- the field varies physically over that scale, so such a test cannot
-    // separate quadrature error from real variation. The meaningful check is mesh refinement at
-    // fixed geometry: doubling points_per_disk from 32 to 64 moves the unmasked field by 8e-4
-    // relative (0.06% of peak), so the mask width of one node spacing is sufficient.
 
     std::cout << "[wrote] bent_waveguide_modes.csv, bent_waveguide_field_{real,imag,mag,phase}.csv, "
                  "bent_waveguide_field_axis.csv\n";

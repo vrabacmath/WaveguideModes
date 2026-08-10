@@ -63,9 +63,7 @@ void run_bent_waveguide(double radius, double defect_radius, double delta,
               << ")\n";
 
     // --- finite defect resonances: eigenvalues of the full C matrix ----------------------
-    // Sort a permutation rather than the eigenvalue array in place: sorting `lam` directly would
-    // silently break its correspondence with es.eigenvectors(), which run_bent_waveguide_field
-    // relies on.
+    // Sort the eigenvalues with a permutation map and apply it to the eigenvectors to maintain correspondence.
     ComplexEigenSolver<MatrixXcd> es(p.C);
     const VectorXcd lam = es.eigenvalues();
     std::vector<int> order(lam.size());
@@ -78,7 +76,7 @@ void run_bent_waveguide(double radius, double defect_radius, double delta,
     out_r.precision(std::numeric_limits<double>::max_digits10);
     for (int j = 0; j < static_cast<int>(order.size()); ++j) {
         const cpxd l = lam(order[j]);
-        const cpxd omega = p.omega0 + delta * l;  // finite analog of omega = omega_0 + delta*lambda
+        const cpxd omega = p.omega0 + delta * l;  // omega = omega_0 + delta*lambda
         out_r << l.real() << "," << l.imag() << "," << omega.real() << "," << omega.imag() << "\n";
     }
     out_r.close();

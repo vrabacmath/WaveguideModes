@@ -20,11 +20,23 @@ It can also search the subwavelength (static or 0th monopole) band over [sub_lo,
 so one run gives the subwavelength + higher (dipole/quadrupole) bands at the same geometry; set
 sub_lo >= sub_hi to skip it.
 
+Parameters:
+* radius = crystal resonator radius
+* defect_radius = defect resonator radius
+* delta = inverse contrast parameter
+* max_m = maximum angular order (0 monopole, 1 dipole, 2 quadrupole, ...)
+* window_factor = search +/- window_factor * delta around each defect Neumann resonance
+* num_alpha = number of quasi-periodic alpha_x points in [0, pi]
+* n_gauss = number of Gauss-Legendre points for the multipole operator
+* n_multipole = number of multipole terms
+* sub_lo, sub_hi = frequency range for the subwavelength (m=-1) band; set sub_lo >= sub_hi to skip it
+* v = background wave speed
+* v_b = crystal resonator interior wave speed
+* v_bd = defect resonator interior wave speed
+
 Writes "defect_neumann_bands.csv": m, alpha_x, omega, sigma_min(M), in_gap, near_dirichlet
 (m = -1 subwavelength, 0 monopole, 1 dipole, 2 quadrupole, ...).
-n_multipole = 0 selects a frequency-appropriate cutoff (avoids high-order J_n(kR) contamination).
-v is the background wave speed, v_b the crystal resonators' interior speed, and v_bd the
-defect resonators' interior speed; the searches recenter on omega_0 = v_bd * j'_{m,1}/R_def.*/
+*/
 void run_line_defect_bands_neumann(double radius = 0.35,
                                    double defect_radius = 0.455,
                                    double delta = 0.001,

@@ -32,6 +32,7 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
     // out along +y. Sites are addressed by signed path distance `ell` from the corner:
     //     site(ell) = (-ell, 0)  for ell <= 0   (the +x arm)
     //               = ( 0, ell)  for ell >= 0   (the +y arm)
+    // Which can be simplified to only ell.
     // Everything else inside the [-n_clad, n_clad]^2 square is a cladding disk.
     //
     // The lattice sweep below pushes disks in mesh order, which is NOT path order (it emits the
@@ -57,7 +58,7 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
     }
 
     // Interior sites in path order, ell = -L_main .. +L_main. The outer `fringe` layers of the
-    // chain are left out of the coupling row but stay in the mesh, so they still screen.
+    // chain are left out of the coupling row but stay in the mesh and the computation.
     for (int ell = -p.L_main; ell <= p.L_main; ++ell) {
         const std::pair<int, int> s = BentPatch::site_at(ell);
         p.main_indices.push_back(p.defect_index.at(s));

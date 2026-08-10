@@ -12,30 +12,16 @@
 #include "Eigen/Dense"
 #include "boundary_mesh.h"
 #include "spectral_operators.h"
+#include "workflows/bessel_helpers.h"
 
 namespace workflows {
 
 using namespace Eigen;
 
-namespace {
-
-// First positive zero of J_m' = interior Neumann eigenvalue index (radial order n = 1).
-double first_neumann_zero(int m) {
-    switch (m) {
-        case 0: return 3.8317059702;  // breathing (= j_{1,1})
-        case 1: return 1.8411837813;  // dipole
-        case 2: return 3.0542369282;  // quadrupole
-        case 3: return 4.2011889412;  // octupole
-        default: return 1.8411837813;
-    }
-}
-
 struct Disk {
     double r;
     Vector2d c;
 };
-
-}  // namespace
 
 void run_patch_capacitance(double radius, double defect_radius, double delta,
                            int m_ang, int n_defect, int n_clad, int fringe,
@@ -49,7 +35,7 @@ void run_patch_capacitance(double radius, double defect_radius, double delta,
     const double omega0 = v_bd * beta / defect_radius;
     const cpxd k = cpxd(omega0, 1e-3) / v;
 
-    // Keep fringe defect disks in the mesh so they screen, but omit them from the projected C.
+    // Keep fringe defect disks in the mesh so they contribute, but omit them from the capacitance matrix.
     const int L = n_defect + fringe;
     const int main_lo = -n_defect;
     const int main_hi = n_defect;
@@ -147,7 +133,7 @@ void run_patch_capacitance(double radius, double defect_radius, double delta,
     out_r.close();
 
     std::cout << "[wrote] " << filename << " (center-row C_l), "
-                 "patch_defect_resonances.csv (eig(C) -> omega=omega_0+delta*lambda)\n";
+              << "patch_defect_resonances.csv (eig(C) -> omega=omega_0+delta*lambda)\n";
 }
 
 }  // namespace workflows

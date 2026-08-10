@@ -23,15 +23,12 @@ using namespace Eigen;
 namespace {
 
 // A(omega) on the whole cluster, same block layout as SpectralOperators::A. Assembled here
-// rather than through ops.A so that each S/K* pair is built once per DISTINCT wavenumber
-// (all three coincide in the single-material case) instead of once per block.
+// rather than through ops.A so that each S/K* pair is built once per distinct wavenumber
+// instead of once per block.
 //
 // With a defect material the interior wavenumber differs per disk: rows of the interior
 // blocks belonging to defect disks (defect_row) use k_bd = omega/kVbd, cladding rows use
-// k_b = omega/kVb. This is exact, not a splice of two problems: the interior single layer only
-// has to represent the field inside its own disk (interior fields are local), and the trace /
-// jump relations of S^k hold row-wise on each boundary, so evaluating the interior rows of a
-// defect boundary at k_bd is precisely the transmission condition for that disk.
+// k_b = omega/kVb.
 MatrixXcd assemble_A(SpectralOperators& ops, int Ntot, cpxd omega, cpxd kV, cpxd kVb, cpxd kVbd,
                      const std::vector<bool>& defect_row, double delta) {
     const cpxd k = omega / kV, kb = omega / kVb, kbd = omega / kVbd;
@@ -131,7 +128,7 @@ MullerResult muller_resonance(SpectralOperators& ops, int Ntot, cpxd kV, cpxd kV
     return res;
 }
 
-// Deterministic unit-norm probe vectors; <random> would make runs non-reproducible.
+// Deterministic unit-norm probe vectors
 VectorXcd probe(int n, double p, double q) {
     VectorXcd v(n);
     for (int i = 0; i < n; ++i) v(i) = cpxd(std::cos(p * i + 0.3), std::sin(q * i + 0.7));
@@ -345,9 +342,8 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
     }
 
     // --- evaluate the field -----------------------------------------------------------------
-    // Unlike the O(delta) reconstruction there are no dark disks: EVERY disk interior carries the
-    // interior single layer of the full union boundary (at its own material's wavenumber), so the
-    // cladding interior field -- which the leading-order model sets to zero -- comes out too.
+    // Unlike the O(delta) reconstruction there are no dark disks: every disk has a 
+    // potentially non-zero trace and interior field.
     const cpxd k_ext = omega_draw / p.kV;
     const cpxd k_int_clad = omega_draw / p.kVb, k_int_def = omega_draw / p.kVbd;
 
