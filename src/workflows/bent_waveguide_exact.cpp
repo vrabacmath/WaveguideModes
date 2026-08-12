@@ -64,43 +64,23 @@ MatrixXcd assemble_A(SpectralOperators& ops, int Ntot, cpxd omega, cpxd kV, cpxd
     return A;
 }
 
-struct MullerResult {
-    cpxd omega;
-    int iters = 0;
-    bool converged = false;
-};
+// Deterministic unit-norm probe vectors
+VectorXcd probe(int n, double p, double q) {
+    VectorXcd v(n);
+    for (int i = 0; i < n; ++i) v(i) = cpxd(std::cos(p * i + 0.3), std::sin(q * i + 0.7));
+    return v.normalized();
+}
 
-// Muller's method on mu(omega) = the eigenvalue of A(omega) nearest zero, estimated by inverse
-// iteration plus a Rayleigh quotient on the same LU. mu is locally analytic and vanishes exactly
-// at the resonances, so it can drive Muller -- unlike sigma_min, which is real-valued and
-// non-analytic. It is also strictly better than the resolvent probe 1/(w^H A^{-1} r) used first:
-// that scalar has POLES interlacing the resonances (wherever w^H A^{-1} r crosses zero), and a
-// Muller iterate landing near one gets flung into a neighbouring basin -- observed as modes 6/9
-// collapsing onto mode 5's resonance once delta shrank the basin spacing. mu has no such poles.
-MullerResult muller_resonance(SpectralOperators& ops, int Ntot, cpxd kV, cpxd kVb, cpxd kVbd,
-                              const std::vector<bool>& defect_row, double delta,
-                              const VectorXcd& w, const VectorXcd& r, cpxd omega_guess) {
-    auto g = [&](cpxd omega) {
-        const MatrixXcd A = assemble_A(ops, Ntot, omega, kV, kVb, kVbd, defect_row, delta);
-        const PartialPivLU<MatrixXcd> lu = A.partialPivLu();
-        VectorXcd x = r;
-        for (int it = 0; it < 3; ++it) x = lu.solve(x).normalized();
-        return x.dot(A * x);  // eigenvalue of A nearest 0, to inverse-iteration accuracy
-    };
-
-    // The whole miniband spans delta*(lambda_max - lambda_min), so BOTH the seed spacing and the
-    // step clamp must scale with delta: a fixed clamp that is fine at delta = 0.05 exceeds the
-    // inter-resonance spacing at delta = 0.025 and lets Muller hop into a neighbouring basin
-    // (observed: modes 6 and 9 both collapsing onto mode 4's resonance).
+template <typename F>
+Result clamped_muller(F&& f, cpxd seed, double delta) {
     const double d = std::min(5.0e-4, 1.0e-2 * delta);
     const double max_step = 0.2 * delta;
     const double tol = 1e-10;
 
-    cpxd x0 = omega_guess - d, x1 = omega_guess + d, x2 = omega_guess;
-    cpxd f0 = g(x0), f1 = g(x1), f2 = g(x2);
+    cpxd x0 = seed - d, x1 = seed + d, x2 = seed;
+    cpxd f0 = f(x0), f1 = f(x1), f2 = f(x2);
+    Result res{x2, f2, 0, false};
 
-    MullerResult res;
-    res.omega = x2;
     for (int it = 0; it < 30; ++it) {
         const cpxd h1 = x1 - x0, h2 = x2 - x1;
         const cpxd d1 = (f1 - f0) / h1, d2 = (f2 - f1) / h2;
@@ -114,25 +94,12 @@ MullerResult muller_resonance(SpectralOperators& ops, int Ntot, cpxd kV, cpxd kV
         x0 = x1; f0 = f1;
         x1 = x2; f1 = f2;
         x2 = x2 + dx;
-        f2 = g(x2);
-        res.iters = it + 1;
-        res.omega = x2;
-        if (std::abs(dx) < tol) {
-            res.converged = true;
-            break;
-        }
+        f2 = f(x2);
+        res = Result{x2, f2, it + 1, std::abs(dx) < tol};
+        if (res.converged) break;
     }
-    if (std::abs(res.omega - omega_guess) > 0.6 * delta)
-        std::cout << "    WARNING: converged " << std::abs(res.omega - omega_guess)
-                  << " away from the seed -- possibly a neighbouring resonance\n";
-    return res;
-}
 
-// Deterministic unit-norm probe vectors
-VectorXcd probe(int n, double p, double q) {
-    VectorXcd v(n);
-    for (int i = 0; i < n; ++i) v(i) = cpxd(std::cos(p * i + 0.3), std::sin(q * i + 0.7));
-    return v.normalized();
+    return res;
 }
 
 }  // namespace
@@ -186,7 +153,7 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
     int draw;
     if (mode_index >= 0 && mode_index < n_eig) {
         refine.insert(mode_index);
-        draw = mode_index;
+        draw = mode_index; // override the corner mode if requested
     } else {
         refine.insert(0);
         refine.insert(n_eig / 2);
@@ -214,28 +181,40 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
             seed = cpxd(seed_re, seed_im);
             std::cout << "  (seed override: " << seed << ")\n";
         }
-        const MullerResult mr = muller_resonance(ops, p.Ntot, p.kV, p.kVb, p.kVbd, defect_row,
-                                                 delta, wprobe, rprobe, seed);
+
+        auto g = [&](cpxd omega) {
+            const MatrixXcd A = assemble_A(ops, p.Ntot, omega, p.kV, p.kVb, p.kVbd, defect_row, delta);
+            const PartialPivLU<MatrixXcd> lu = A.partialPivLu();
+            VectorXcd x = rprobe;
+            for (int it = 0; it < 3; ++it) x = lu.solve(x).normalized();
+            return x.dot(A * x);  // eigenvalue of A nearest 0, to inverse-iteration accuracy
+        };
+
+        const Result mr = clamped_muller(g, seed, delta);
+        
         if (!mr.converged)
-            std::cout << "    WARNING: mode " << j << " did not converge in " << mr.iters
+            std::cout << "    WARNING: mode " << j << " did not converge in " << mr.iterations
                       << " iterations\n";
-        if (j == draw) omega_draw = mr.omega;
+        if (std::abs(mr.root - seed) > 0.6 * delta)
+            std::cout << "    WARNING: converged " << std::abs(mr.root - seed)
+                      << " away from the seed -- possibly a neighbouring resonance\n";
+        if (j == draw) omega_draw = mr.root;
 
         // Residual of the null vector at the converged omega (computed again below for the drawn
         // mode; here just for the report).
-        const MatrixXcd A = assemble_A(ops, p.Ntot, mr.omega, p.kV, p.kVb, p.kVbd, defect_row, delta);
+        const MatrixXcd A = assemble_A(ops, p.Ntot, mr.root, p.kV, p.kVb, p.kVbd, defect_row, delta);
         VectorXcd x = rprobe;
         const PartialPivLU<MatrixXcd> lu = A.partialPivLu();
         for (int it = 0; it < 2; ++it) x = lu.solve(x).normalized();
         const double resid = (A * x).norm();
 
-        const double err = std::abs(mr.omega - omega_asym);
+        const double err = std::abs(mr.root - omega_asym);
         std::cout << "  " << j << "  " << l.real() << "   (" << omega_asym.real() << ","
-                  << omega_asym.imag() << ")  (" << mr.omega.real() << "," << mr.omega.imag()
-                  << ")  " << err << "   " << mr.iters << "\n";
+                  << omega_asym.imag() << ")  (" << mr.root.real() << "," << mr.root.imag()
+                  << ")  " << err << "   " << mr.iterations << "\n";
         out << j << "," << l.real() << "," << l.imag() << "," << omega_asym.real() << ","
-            << omega_asym.imag() << "," << mr.omega.real() << "," << mr.omega.imag() << "," << err
-            << "," << mr.iters << "," << resid << "\n";
+            << omega_asym.imag() << "," << mr.root.real() << "," << mr.root.imag() << "," << err
+            << "," << mr.iterations << "," << resid << "\n";
     }
     out.close();
 
@@ -254,15 +233,12 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
     std::cout << "  ||psi_int|| = " << psi_int.norm() << ", ||psi_ext|| = " << psi_ext.norm()
               << "\n";
 
-    // --- fingerprint: WHICH mode did we actually converge to? ------------------------------
+    // --- which mode did we actually converge to? ------------------------------------
     // The seed's label is not evidence: a strongly shifted neighbouring resonance can capture
-    // the search (observed: the band-top pair sits ~0.23 below its asymptotic prediction and
-    // swallowed mode 6's seed). Identify the converged state by its own structure instead:
+    // the search. Identify the converged state by its own structure instead:
     // trace u = S_b psi_int on each defect boundary, project onto e^{+-i m theta}, and compare
     // the per-site weight profile against every capacitance eigenvector.
     {
-        // The fingerprint only reads the trace on DEFECT boundaries, whose interior layer lives
-        // at the defect wavenumber, so assemble S there.
         MatrixXcd Sb;
         ops.S(Sb, omega_draw / p.kVbd);
         const VectorXcd trace = Sb * psi_int;
@@ -333,9 +309,6 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
                   << (best != draw ? "  *** NOT the seeded mode ***" : "") << "\n";
     }
 
-    // grid_points <= 0: resonance table + fingerprint only. Do NOT write tiny placeholder field
-    // grids -- a validation sweep run this way used to overwrite a good 200x200 field with a
-    // 16x16 stub, which then plotted as nothing.
     if (grid_points <= 0) {
         std::cout << "[wrote] bent_waveguide_exact_resonances.csv (field skipped, grid_points <= 0)\n";
         return;

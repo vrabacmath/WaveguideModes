@@ -40,7 +40,7 @@ MULTISERIES_LEGEND_SIZE = 10
 BAND_VIEWS = [
     {
         "output": "bands.pdf",
-        "title": r"$\text{Line defect bands: } M \text{ vs. capacitance}$",
+        "title": r"$\text{Line defect bands: } \mathcal{M} \text{ vs. } C^\alpha$",
         "ylim": (0.0, 7.5),
         "families": None,
         "figsize": (6.5, 9.0),
@@ -51,8 +51,8 @@ BAND_VIEWS = [
     },
     {
         "output": "dipole.pdf",
-        "title": "Dipole bands",
-        "ylim":(4.044, 4.051),
+        "title": r"$\text{Dipole bands: } \mathcal{M} \text{ vs. } C^\alpha$",
+        "ylim":(4.044, 4.051),#(4.04, 4.06),#
         "families": [1],
         "figsize": (7.5, 5.0),
         "legend_loc": "lower left",
@@ -62,8 +62,8 @@ BAND_VIEWS = [
     },
     {
         "output": "quadrupole.pdf",
-        "title": "Quadrupole bands",
-        "ylim": (6.71, 6.72),
+        "title": r"$\text{Quadrupole bands: } \mathcal{M} \text{ vs. } C^\alpha$",
+        "ylim": (6.71, 6.72),#(6.675, 6.73),#
         "y_tick_format": "%.3f",
         "families": [2],
         "figsize": (7.5, 5.0),
@@ -186,11 +186,11 @@ def plot_neumann_bands(ax, families=None):
         data = data[np.isin(data[:, 0].astype(int), families)]
 
     labels = {
-        -1: r"$M$: subwavelength",
-        0: r"$M$: $\mathfrak{m}=0$",
-        1: r"$M$: $\mathfrak{m}=1$",
-        2: r"$M$: $\mathfrak{m}=2$",
-        3: r"$M$: $\mathfrak{m}=3$",
+        -1: r"$\mathcal{M}$: subwavelength",
+        0: r"$\mathcal{M}$: $\mathfrak{m}=0$",
+        1: r"$\mathcal{M}$: $\mathfrak{m}=1$",
+        2: r"$\mathcal{M}$: $\mathfrak{m}=2$",
+        3: r"$\mathcal{M}$: $\mathfrak{m}=3$",
     }
     colors = {-1: "tab:green", 0: "tab:brown", 1: "tab:red", 2: "tab:purple", 3: "tab:orange"}
 
@@ -204,7 +204,7 @@ def plot_neumann_bands(ax, families=None):
             mec=colors.get(m, "tab:gray"),
             ms=6,
             mew=1.3,
-            label=labels.get(m, rf"$M$: $\mathfrak{m}={m}$"),
+            label=labels.get(m, rf"$\mathcal{{M}}$: $\mathfrak{{m}}={m}$"),
         )
 
 

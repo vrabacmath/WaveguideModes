@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
         const double sim    = (argc > 11) ? std::stod(argv[11]) : 0.0;
         const double v      = (argc > 12) ? std::stod(argv[12]) : 1.0;
         const double v_b    = (argc > 13) ? std::stod(argv[13]) : 1.0;
-        const double v_bd   = (argc > 14) ? std::stod(argv[14]) : 1.0;//0.35 / 0.455; //1.0;
+        const double v_bd   = (argc > 14) ? std::stod(argv[14]) : 0.35 / 0.455; //1.0;
         // workflows::run_bent_waveguide_exact(0.35, 0.455, delta, m_ang, n_defect, n_clad, fringe,
         //                                     npd, mode_idx, ngrid, sre, sim, v, v_b, v_bd);
         workflows::run_bent_waveguide_exact(0.35, 0.35, delta, m_ang, n_defect, n_clad, fringe,
