@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Build trees
+build/
+build-debug/
+
+# Generated outputs (workflows write these to the repo root)
+/*.csv
+/*.pdf
+/dip*/
+/quad*/
+/figures/
+
+/papers/

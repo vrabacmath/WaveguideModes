@@ -164,7 +164,6 @@ void run_bent_waveguide_exact(double radius, double defect_radius, double delta,
 
     // --- refine each seed to the exact resonance ------------------------------------------
     SpectralOperators ops(p.mesh);
-    const VectorXcd wprobe = probe(2 * p.Ntot, 1.3, 2.1);
     const VectorXcd rprobe = probe(2 * p.Ntot, 0.9, 1.7);
 
     std::ofstream out(("bent_waveguide_exact_resonances.csv"));

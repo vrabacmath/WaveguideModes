@@ -358,74 +358,8 @@ void SpectralOperators::K(Eigen::MatrixXcd &K, cpxd k) {
  * @param      a     Period in the x-direction.
  */
 void SpectralOperators::PeriodicS_diagonal(MatrixXcd &S, cpxd k, double kbar, double a) {
-    const BoundaryMesh *local_mesh = &mesh;
-    int Ntotal = mesh.get_num_segments();
-    S = MatrixXcd::Zero(Ntotal, Ntotal);
-
-    for (int m = 0; m < mesh.get_num_meshes(); m++) {
-        int start_idx = mesh.get_start_index(m);
-        int end_idx = mesh.get_end_index(m);
-        int N = end_idx - start_idx + 1;
-
-        if (abs(k) < 1e-6 && abs(kbar) < 1e-6) { // Use Laplace kernel for small k
-#pragma omp parallel for schedule(static) default(none) shared(S, local_mesh, N, a, start_idx, end_idx)
-            for (int i = start_idx; i <= end_idx; i++) {
-                Vector2d point_i = mesh.get_vertex(i).point;
-                Vector2d normal_i = mesh.get_vertex(i).normal;
-                for (int j = start_idx; j <= end_idx; j++) {
-                    if (i != j) {
-                        Vector2d point_j = mesh.get_vertex(j).point;
-                        cpxd alpha = 0.25 * M_1_PI;
-                        S(i, j) = alpha * mesh.get_vertex(j).tnorm * R_j_Kress((i - j + N) % N);
-
-                        double sinterm = sin(M_PI * (i - j) / N);
-                        S(i, j) += mesh.get_vertex(j).sigma * (Kernels::laplace_2D_periodic(point_i, point_j, a) -
-                                                               alpha * log(4. * sinterm * sinterm));
-                    } else {
-                        // self-interaction term
-                        S(i, i) = 0.25 * M_1_PI * mesh.get_vertex(i).tnorm * R_j_Kress(0);
-                        S(i, i) += 0.5 * M_1_PI * log(M_PI / a * mesh.get_vertex(i).tnorm) * mesh.get_vertex(i).sigma;
-                    }
-                }
-            }
-        } else {
-            cpxd C = 0; double epsilon = sqrt(M_PI) / a;
-            cpxd ratio = k / (2.0 * epsilon);
-            for (int q = 1; q <= 20; q++) {
-                C += pow(ratio, 2 * q) / (tgamma(q + 1) * q);
-            }
-            // NOTE: C is the bare Ewald near-field series; the 1/(4 pi) factor is applied
-            // once in the self-term below (do not pre-scale C here).
-#pragma omp parallel for schedule(static) default(none) shared(S, local_mesh, N, start_idx, end_idx, k, kbar, a, C)
-            for (int i = start_idx; i <= end_idx; i++) {
-                Vector2d point_i = mesh.get_vertex(i).point;
-                Vector2d normal_i = mesh.get_vertex(i).normal;
-                for (int j = start_idx; j <= end_idx; j++) {
-                    Vector2d point_j = mesh.get_vertex(j).point;
-                    double rij = (point_i - point_j).norm();
-
-                    if (i != j) {
-                        cpxd alpha = 0.25 * M_1_PI * bessel::cyl_j(0, k * rij);
-                        S(i, j) = alpha * mesh.get_vertex(j).tnorm * R_j_Kress((i - j + N) % N);
-                        double sinterm = sin(M_PI * (i - j) / N);
-                        S(i, j) += mesh.get_vertex(j).sigma *
-                                  (Kernels::helmholtz_2D_periodic(k, kbar, point_i, point_j, a) -
-                                   alpha * log(4. * sinterm * sinterm));
-                    } else {
-                        // self-interaction term. The Ewald kernel helmholtz_2D_periodic already
-                        // skips its own p=0 spatial singularity, so at coincidence it returns the
-                        // regular lattice part; Kress(0) carries the log-singular self weight and
-                        // the (-C + gamma + log) term is the Ewald near-field constant of the p=0
-                        // free-space cell. (Weighted by sigma like the off-diagonal entries.)
-                        const double tnorm = mesh.get_vertex(i).tnorm, sig = mesh.get_vertex(i).sigma;
-                        S(i, i) = 0.25 * M_1_PI * tnorm * R_j_Kress(0);
-                        S(i, i) += sig * (Kernels::helmholtz_2D_periodic(k, kbar, point_i, point_i, a)
-                                          + 0.25 * M_1_PI * (-C + EULER_GAMMA + log(M_PI / a / a * tnorm * tnorm)));
-                    }
-                }
-            }
-        }
-    }
+    assemble_single_layer_diagonal(S, mesh, R_j_Kress,
+                                   GreenKernels::PeriodicKernel{k, kbar, a});
 }
 
 /* @brief Assemble the diagonal blocks of the quasi-periodic adjoint double-layer operator (K*) for the 2D Helmholtz equation.
@@ -439,65 +373,8 @@ void SpectralOperators::PeriodicS_diagonal(MatrixXcd &S, cpxd k, double kbar, do
  * @param      a      Period in the x-direction.
  */
 void SpectralOperators::PeriodicKstar_diagonal(MatrixXcd &Kstar, cpxd k, double kbar, double a) {
-    const BoundaryMesh *local_mesh = &mesh;
-    int Ntotal = mesh.get_num_segments();
-    Kstar = MatrixXcd::Zero(Ntotal, Ntotal);
-
-    for (int m = 0; m < mesh.get_num_meshes(); m++) {
-        int start_idx = mesh.get_start_index(m);
-        int end_idx = mesh.get_end_index(m);
-        int N = end_idx - start_idx + 1;
-
-        if (abs(k) < 1e-6 && abs(kbar) < 1e-6) { // Use Laplace kernel for small k
-#pragma omp parallel for schedule(static) default(none) shared(Kstar, local_mesh, N, a, start_idx, end_idx)
-            for (int i = start_idx; i <= end_idx; i++) {
-                Vector2d point_i = mesh.get_vertex(i).point;
-                Vector2d normal_i = mesh.get_vertex(i).normal;
-                for (int j = start_idx; j <= end_idx; j++) {
-                    if (i != j) {
-                        Vector2d point_j = mesh.get_vertex(j).point;
-                        Kstar(i, j) = Kernels::grad_laplace_2D_periodic(point_i, point_j, a).dot(normal_i)
-                                      * mesh.get_vertex(j).sigma;
-                    } else {
-                        // self-interaction term
-                        Kstar(i, i) = mesh.get_vertex(i).curvature * 0.25 * M_1_PI * mesh.get_vertex(i).sigma;
-                    }
-                }
-            }
-        } else {
-#pragma omp parallel for schedule(static) default(none) shared(Kstar, local_mesh, N, k, kbar, a, start_idx, end_idx)
-            for (int i = start_idx; i <= end_idx; i++) {
-                Vector2d point_i = mesh.get_vertex(i).point;
-                Vector2d normal_i = mesh.get_vertex(i).normal;
-                for (int j = start_idx; j <= end_idx; j++) {
-                    if (i != j) {
-                        Vector2d point_j = mesh.get_vertex(j).point;
-                        Vector2d r_ij = point_i - point_j;
-                        double r_norm = r_ij.norm();
-
-                        cpxd alpha = -k * 0.25 * M_1_PI * bessel::cyl_j(1, k * r_norm)
-                                     * r_ij.dot(normal_i) / r_norm;
-
-                        Kstar(i, j) = alpha * mesh.get_vertex(j).tnorm * R_j_Kress((i - j + N) % N);
-
-                        double sinterm = sin(M_PI * (i - j) / N);
-                        Kstar(i, j) += mesh.get_vertex(j).sigma *
-                                       (Kernels::grad_helmholtz_2D_periodic(k, kbar, point_i, point_j, a).cwiseProduct(
-                                               normal_i).sum() - alpha * log(4. * sinterm * sinterm));
-                    } else {
-                        // self-interaction term. Use the NON-Dirichlet periodic gradient kernel
-                        // (translation invariant in y); it skips its own p=0 singularity, so at
-                        // coincidence it returns the regular lattice-image gradient. The curvature
-                        // term is the principal value of the free-space p=0 self.
-                        Kstar(i, i) = 0.25 * M_1_PI * mesh.get_vertex(i).curvature * mesh.get_vertex(i).sigma;
-                        Kstar(i, i) += mesh.get_vertex(i).sigma *
-                                       Kernels::grad_helmholtz_2D_periodic(k, kbar, point_i, point_i, a)
-                                       .cwiseProduct(normal_i).sum();
-                    }
-                }
-            }
-        }
-    }
+    assemble_target_normal_diagonal(Kstar, mesh, R_j_Kress,
+                                     GreenKernels::PeriodicKernel{k, kbar, a});
 }
 
 /**
@@ -512,45 +389,8 @@ void SpectralOperators::PeriodicKstar_diagonal(MatrixXcd &Kstar, cpxd k, double 
  * @param      a      Period in the x-direction.
  */
 void SpectralOperators::PeriodicKstar(MatrixXcd &Kstar, cpxd k, double kbar, double a) {
-    const BoundaryMesh *local_mesh = &mesh;
-    int Ntotal = mesh.get_num_segments();
-    PeriodicKstar_diagonal(Kstar, k, kbar, a); // fill the diagonal blocks
-
-    for (int mesh_i = 0; mesh_i < mesh.get_num_meshes(); mesh_i++) {
-        int start_idx = mesh.get_start_index(mesh_i);
-        int end_idx = mesh.get_end_index(mesh_i);
-
-        for (int mesh_j = 0; mesh_j < mesh.get_num_meshes(); mesh_j++) {
-            int start_jdx = mesh.get_start_index(mesh_j);
-            int end_jdx = mesh.get_end_index(mesh_j);
-
-            if (mesh_i != mesh_j) {
-                if (abs(k) < 1e-6 && abs(kbar) < 1e-6) { // Use Laplace kernel for small k
-#pragma omp parallel for schedule(static) default(none) shared(Kstar, local_mesh, start_idx, end_idx, start_jdx, end_jdx, a)
-                    for (int i = start_idx; i <= end_idx; i++) {
-                        Vector2d point_i = mesh.get_vertex(i).point;
-                        Vector2d normal_i = mesh.get_vertex(i).normal;
-                        for (int j = start_jdx; j <= end_jdx; j++) {
-                            Vector2d point_j = mesh.get_vertex(j).point;
-                            Kstar(i, j) = Kernels::grad_laplace_2D_periodic(point_i, point_j, a).dot(normal_i)
-                                          * mesh.get_vertex(j).sigma;
-                        }
-                    }
-                } else {
-#pragma omp parallel for schedule(static) default(none) shared(Kstar, local_mesh, start_idx, end_idx, start_jdx, end_jdx, k, kbar, a)
-                    for (int i = start_idx; i <= end_idx; i++) {
-                        Vector2d point_i = mesh.get_vertex(i).point;
-                        Vector2d normal_i = mesh.get_vertex(i).normal;
-                        for (int j = start_jdx; j <= end_jdx; j++) {
-                            Vector2d point_j = mesh.get_vertex(j).point;
-                            Kstar(i, j) = Kernels::grad_helmholtz_2D_periodic(k, kbar, point_i, point_j, a).cwiseProduct(
-                                    normal_i).sum() * mesh.get_vertex(j).sigma;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    assemble_target_normal(Kstar, mesh, R_j_Kress,
+                                    GreenKernels::PeriodicKernel{k, kbar, a});
 }
 
 /**
@@ -565,43 +405,7 @@ void SpectralOperators::PeriodicKstar(MatrixXcd &Kstar, cpxd k, double kbar, dou
  * @param      a     Period in the x-direction.
  */
 void SpectralOperators::PeriodicS(MatrixXcd &S, cpxd k, double kbar, double a) {
-    const BoundaryMesh *local_mesh = &mesh;
-    int Ntotal = mesh.get_num_segments();
-    PeriodicS_diagonal(S, k, kbar, a); // fill the diagonal blocks
-
-    for (int mesh_i = 0; mesh_i < mesh.get_num_meshes(); mesh_i++) {
-        int start_idx = mesh.get_start_index(mesh_i);
-        int end_idx = mesh.get_end_index(mesh_i);
-
-        for (int mesh_j = 0; mesh_j < mesh.get_num_meshes(); mesh_j++) {
-            int start_jdx = mesh.get_start_index(mesh_j);
-            int end_jdx = mesh.get_end_index(mesh_j);
-
-            if (mesh_i != mesh_j) {
-                if (abs(k) < 1e-6 && abs(kbar) < 1e-6) { // Use Laplace kernel for small k
-#pragma omp parallel for schedule(static) default(none) shared(S, local_mesh, start_idx, end_idx, start_jdx, end_jdx, a)
-                    for (int i = start_idx; i <= end_idx; i++) {
-                        Vector2d point_i = mesh.get_vertex(i).point;
-                        for (int j = start_jdx; j <= end_jdx; j++) {
-                            Vector2d point_j = mesh.get_vertex(j).point;
-                            S(i, j) = Kernels::laplace_2D_periodic(point_i, point_j, a)
-                                      * mesh.get_vertex(j).sigma;
-                        }
-                    }
-                } else {
-#pragma omp parallel for schedule(static) default(none) shared(S, local_mesh, start_idx, end_idx, start_jdx, end_jdx, k, kbar, a)
-                    for (int i = start_idx; i <= end_idx; i++) {
-                        Vector2d point_i = mesh.get_vertex(i).point;
-                        for (int j = start_jdx; j <= end_jdx; j++) {
-                            Vector2d point_j = mesh.get_vertex(j).point;
-                            S(i, j) = Kernels::helmholtz_2D_periodic(k, kbar, point_i, point_j, a)
-                                      * mesh.get_vertex(j).sigma;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    assemble_single_layer(S, mesh, R_j_Kress, GreenKernels::PeriodicKernel{k, kbar, a});
 }
 
 /**

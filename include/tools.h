@@ -167,89 +167,6 @@ namespace Tools {
         return make_pair(x1, fof1);
     }
 
-    /** @brief Experimental real-valued approximation of exponential integral E1(x). */
-    inline double E1workinprogress(double x) {
-        // assumes x > 0
-        const double eps  = 1e-16;
-        const double gamma = 0.57721566490153286060651209; // Euler-Mascheroni
-
-        if (x <= 0.0) {
-            // handle domain error however you like
-            return std::numeric_limits<double>::quiet_NaN();
-        }
-
-        // 1) Small x: power series
-        if (x < 1.0) {
-            double term = x;
-            double sum  = 0.0;
-            int k = 1;
-            // sum_{k=1}^\infty (-x)^k / (k*k!)
-            while (std::fabs(term) > eps * std::fabs(sum + 1.0)) {
-                sum += term / (k * std::tgamma(k + 1.0)); // k! = Γ(k+1)
-                ++k;
-                term *= -x;
-                if (k > 50) break; // safety
-            }
-            return -gamma - std::log(x) - sum;
-        }
-
-        // 2) Large x: asymptotic expansion
-        if (x > 30.0) {
-            double term = 1.0;
-            double sum  = 1.0;
-            double n = 1.0;
-            // sum_{n=0}^{∞} (-1)^n n!/x^n
-            // we already added n=0
-            while (std::fabs(term) > eps * std::fabs(sum)) {
-                term *= -n / x; // multiply by (-n)/x each step
-                sum  += term;
-                ++n;
-                if (n > 50) break; // safety
-            }
-            return std::exp(-x) * sum / x;
-        }
-
-        // 3) Moderate x: continued fraction via Lentz's algorithm
-        // Compute F = e^x * E1(x)
-        const int maxIter = 200;
-        double tiny = std::sqrt(std::numeric_limits<double>::min());
-        double f, C, D;
-
-        // initialize
-        double a0 = 1.0;  // numerator start
-        double b0 = x;    // denominator start
-        f = a0 / b0;
-        C = f;
-        D = 0.0;
-
-        for (int k = 1; k < maxIter; ++k) {
-            double a_k, b_k;
-            if (k % 2 == 1) {
-                // odd k: a_k = (k+1)/2, b_k = 1.0
-                a_k = (k + 1) / 2.0;
-                b_k = 1.0;
-            } else {
-                // even k: a_k = k/2, b_k = x;
-                a_k = k / 2.0;
-                b_k = x;
-            }
-
-            // Lentz step
-            D = b_k + a_k * D;
-            if (std::fabs(D) < tiny) D = tiny;
-            C = b_k + a_k / C;
-            if (std::fabs(C) < tiny) C = tiny;
-            D = 1.0 / D;
-            double delta = C * D;
-            f *= delta;
-
-            if (std::fabs(delta - 1.0) < 1e-14) break;
-        }
-
-        double F = f;
-        return std::exp(-x) * F;
-    }
-
     // /* Exponential integral E1 for real argument x > 0
     //  * from Abramowitz and Stegun, Handbook of Mathematical Functions
     //  * 5.1.53 and 5.1.56
@@ -261,44 +178,44 @@ namespace Tools {
         return -std::expint(-x);
         assert(("E1 is only defined for x > 0!", x > 0));
 
-        if (0 <= x && x <= 1) {
-            std::array<double, 6> a = {-0.57721566,
-                                  0.99999193,
-                                  -0.24991055,
-                                  0.05519968,
-                                  -0.00976004,
-                                  0.00107857};
+        // if (0 <= x && x <= 1) {
+        //     std::array<double, 6> a = {-0.57721566,
+        //                           0.99999193,
+        //                           -0.24991055,
+        //                           0.05519968,
+        //                           -0.00976004,
+        //                           0.00107857};
 
-            double sum = a[5];
+        //     double sum = a[5];
 
-            // Horner's rule
-            for (int i = 4; i >= 0; i--) {
-                sum = sum * x + a[i];
-            }
+        //     // Horner's rule
+        //     for (int i = 4; i >= 0; i--) {
+        //         sum = sum * x + a[i];
+        //     }
 
-            return -std::log(x) + sum;
+        //     return -std::log(x) + sum;
 
-        } else {
-            std::array<double, 4> a = {8.5733287401,
-                                  18.0590169730,
-                                  8.6347608925,
-                                  0.2677737343};
+        // } else {
+        //     std::array<double, 4> a = {8.5733287401,
+        //                           18.0590169730,
+        //                           8.6347608925,
+        //                           0.2677737343};
 
-            std::array<double, 4> b = {9.5733223454,
-                                  25.6329561486,
-                                  21.0996530827,
-                                  3.9584969228};
-            double numerator = 1.0;
-            double denominator = 1.0;
+        //     std::array<double, 4> b = {9.5733223454,
+        //                           25.6329561486,
+        //                           21.0996530827,
+        //                           3.9584969228};
+        //     double numerator = 1.0;
+        //     double denominator = 1.0;
 
-            // Horner's rule
-            for (int i = 0; i < 4; i++) {
-                numerator = numerator * x + a[i];
-                denominator = denominator * x + b[i];
-            }
+        //     // Horner's rule
+        //     for (int i = 0; i < 4; i++) {
+        //         numerator = numerator * x + a[i];
+        //         denominator = denominator * x + b[i];
+        //     }
 
-            return (exp(-x) * numerator) / (denominator * x);
-        }
+        //     return (exp(-x) * numerator) / (denominator * x);
+        // }
     }
 
     /** @brief Exponential integral E0(x) = exp(-x)/x for x != 0. */
@@ -459,68 +376,6 @@ namespace Tools {
             out << "\n";
         }
         std::cerr << "[wrote] " << fname << " (" << A.size() << "x" << (A.empty()?0: A[0].size()) << ")\n";
-    }
-
-// Computes the generalized exponential integral E_n(x)
-    /** @brief Compute generalized exponential integral E_n(x) for integer n >= 0. */
-    inline double expint(int n, double x) {
-        const int MAXIT = 100;
-        const double EULER = 0.577215664901532860606; // Euler-Mascheroni constant
-        const double EPS = std::numeric_limits<double>::epsilon();
-        const double FPMIN = std::numeric_limits<double>::min() / EPS;
-
-        // Handle edge cases
-        if (n < 0 || x < 0.0 || (x == 0.0 && (n == 0 || n == 1))) {
-            return std::numeric_limits<double>::quiet_NaN();
-        }
-        if (n == 0) return std::exp(-x) / x;
-        if (x == 0.0) return 1.0 / (n - 1.0);
-
-        if (x > 1.0) {
-            // Lentz's algorithm for Continued Fraction (stable for large x)
-            double b = x + n;
-            double c = 1.0 / FPMIN;
-            double d = 1.0 / b;
-            double h = d;
-
-            for (int i = 1; i <= MAXIT; i++) {
-                double a = -i * (n - 1.0 + i);
-                b += 2.0;
-                d = a * d + b;
-                if (std::abs(d) < FPMIN) d = FPMIN;
-                c = b + a / c;
-                if (std::abs(c) < FPMIN) c = FPMIN;
-                d = 1.0 / d;
-                double del = d * c;
-                h *= del;
-                if (std::abs(del - 1.0) < EPS) {
-                    return h * std::exp(-x);
-                }
-            }
-            return h * std::exp(-x); // Fallback if MAXIT reached
-
-        } else {
-            // Series Expansion (stable for small x)
-            double ans = (n == 1 ? 0.0 : 1.0 / (n - 1.0));
-            double fact = 1.0;
-
-            for (int i = 1; i <= MAXIT; i++) {
-                fact *= -x / i;
-                if (i != n - 1) {
-                    ans += fact / (i - n + 1.0);
-                } else {
-                    double psi = -EULER;
-                    for (int ii = 1; ii <= n - 1; ii++) {
-                        psi += 1.0 / ii;
-                    }
-                    ans += fact * (-std::log(x) + psi);
-                }
-                if (std::abs(fact) < std::abs(ans) * EPS) {
-                    return ans;
-                }
-            }
-            return ans;
-        }
     }
 }
 

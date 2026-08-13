@@ -5,7 +5,6 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <iostream>
-#include "operators.h"
 #include "spectral_operators.h"
 #include "tools.h"
 #include "kernels.h"
