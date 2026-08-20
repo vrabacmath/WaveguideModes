@@ -25,6 +25,7 @@
 #include "workflows/bent_waveguide.h"
 #include "workflows/bent_waveguide_field.h"
 #include "workflows/bent_waveguide_exact.h"
+#include "hex_crystal.h"
 
 namespace {
 
@@ -226,6 +227,20 @@ int main(int argc, char** argv) {
         workflows::run_bent_waveguide_exact(0.35, 0.35, delta, m_ang, n_defect, n_clad, fringe,
                                             npd, mode_idx, ngrid, sre, sim, v, v_b, v_bd);
         return 0;
+    }
+
+    if (mode == "hexagonal-lattice") {
+        int N = 20;
+        BoundaryMesh mesh(N), mesh2(N);
+        mesh.generate_circle(0.35, Vector2d(0.5, sqrt(3) / 6));
+        mesh2.generate_circle(0.35, Vector2d(1., 1.-sqrt(3) / 6));
+        mesh.add_mesh(mesh2);
+        Vector2d a1(1.0, 0.0), a2(0.5, sqrt(3) / 2);
+        double delta = 0.001;
+
+        Crystal crystal(mesh, delta, a1, a2);
+
+        crystal.compute_high_symmetry_bands(0.0, 8.0, 100, 1e-4, 1.0, 1.0, "crystal_hex_bands.csv");
     }
 
     print_usage(argv[0]);

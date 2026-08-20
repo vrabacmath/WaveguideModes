@@ -1,6 +1,20 @@
 #ifndef SUBWAVELENGTHRESONATORS_WORKFLOWS_CRYSTAL_MATRIX_BANDS_H
 #define SUBWAVELENGTHRESONATORS_WORKFLOWS_CRYSTAL_MATRIX_BANDS_H
 
+#include <algorithm>
+#include <cmath>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <vector>
+
+#include "Eigen/Dense"
+#include "boundary_mesh.h"
+#include "spectral_operators.h"
+#include "utils.h"
+#include "hex_crystal.h"
+
 namespace workflows {
 
 /*Bulk square lattice band diagrams along M -> Gamma -> X -> M for the old R = 0.25 crystal.

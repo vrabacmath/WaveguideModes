@@ -141,6 +141,7 @@ add_library(waveguide_core STATIC
     src/workflows/bent_waveguide_patch.cpp
     src/workflows/bent_waveguide_field.cpp
     src/workflows/bent_waveguide_exact.cpp
+    src/hex_crystal.cpp
 )
 
 # Apply precompiled headers if enabled
