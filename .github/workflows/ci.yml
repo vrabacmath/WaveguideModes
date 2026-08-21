@@ -1,0 +1,48 @@
+name: C++ CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ git
+
+      - name: Configure
+        run: |
+          set -e
+          if ! cmake -S . -B build-ci -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON; then
+            echo "Initial configure failed; retrying after clearing CMAKE_MAKE_PROGRAM cache entry"
+            cmake -S . -B build-ci -U CMAKE_MAKE_PROGRAM -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+          fi
+
+      - name: Build
+        run: cmake --build build-ci --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build-ci --output-on-failure
+
+      - name: Upload CTest logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs
+          if-no-files-found: ignore
+          path: |
+            build-ci/Testing/Temporary/LastTest.log
+            build-ci/Testing/Temporary/CTestCostData.txt
