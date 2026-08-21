@@ -13,10 +13,13 @@ This can be done by using the "projected-bulk" workflow. It will draw the crysta
 A defect radius and material parameters can now be chosen depending on the band gap locations and a line defect can be created and its bands computed by running "line-defect-neumann-M" or "defect-capacitance." The results from these two methods should be very similar for identical parameters.
 
 ### 2. Choosing the defect radius
-To ensure the defect resonances land in the bandgap and enable localized guided modes, we can change the radius and material parameters in such a way that $\frac{\tilde{v}_b/v}{R_d/R}j'_{m,n}$ lands in the band gap, away from the edges.
+To ensure the defect resonances land in the bandgap and enable localized guided modes, we can change the radius and material parameters in such a way that $\frac{\tilde{v}_b/v}{R_d/R}j^\prime_{m,n}$ lands in the band gap, away from the edges.
 
 ### 3. Defect bands, patches, and modes
-After running the patch or line workflows, we can now plot the bands, exponential decay plots, or compute the approximate localized waveguide modes. 
+After running the patch or line workflows, we can now plot the bands, exponential decay plots, or compute the approximate localized waveguide modes.
+
+<img align="right" src="./figures/bent_waveguide_field.svg" alt="Quadrupole mode corresponding to $\lambda_{24}$ in a bent waveguide." width="100%"/>
+
 
 ## Quick Start (Build, Run, Plot)
 
