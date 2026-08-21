@@ -1,6 +1,6 @@
 # Waveguide Modes
 
-[![C++ CI](https://github.com/vrabacmath/WaveguideModes/actions/workflows/ci.yml/badge.svg)](https://github.com/vrabacmath/SubwavelengthResonators/actions/workflows/ci.yml)
+[![C++ CI](https://github.com/vrabacmath/WaveguideModes/actions/workflows/ci.yml/badge.svg)](https://github.com/vrabacmath/WaveguideModes/actions/workflows/ci.yml)
 
 
 This repository implements the boundary integral operator and capacitance matrix ideas for waveguiding as done by Ammari et al. [2] beyond the subwavelength regime using the high-frequency capacitance ideas from Ammari et al. [1].
@@ -13,7 +13,7 @@ This can be done by using the "projected-bulk" workflow. It will draw the crysta
 A defect radius and material parameters can now be chosen depending on the band gap locations and a line defect can be created and its bands computed by running "line-defect-neumann-M" or "defect-capacitance." The results from these two methods should be very similar for identical parameters.
 
 ### 2. Choosing the defect radius
-To ensure the defect resonances land in the bandgap and enable localized guided modes, we can change the radius and material parameters in such a way that $\frac{\tilde{v}_b / v}{R_d / R} j'_{m,n}$ lands in the band gap, away from the edges.
+To ensure the defect resonances land in the bandgap and enable localized guided modes, we can change the radius and material parameters in such a way that $\frac{\tilde{v}_b/v}{R_d/R}j'_{m,n}$ lands in the band gap, away from the edges.
 
 ### 3. Defect bands, patches, and modes
 After running the patch or line workflows, we can now plot the bands, exponential decay plots, or compute the approximate localized waveguide modes. 
