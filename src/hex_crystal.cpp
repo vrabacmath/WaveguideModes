@@ -1,4 +1,5 @@
 #include "hex_crystal.h"
+#include "utils.h"
 
 using namespace Eigen;
 using namespace std;
@@ -37,10 +38,8 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
                 << ", " << n_omega << " omega samples in [" << omega_lo << "," << omega_hi
                 << "]\n";
 
-    std::ofstream out(filename);
-    out.setf(std::ios::scientific);
-    out.precision(10);
-
+    int n_multipole = 7;
+    assert(circles_mesh && "multipole crystal A only works for circular disks!");
 
     SpectralOperators ops(mesh);
     run_one_sweep("CrystalA", filename, make_m_gamma_x_m_path(20), omega_lo, omega_hi, n_omega,
@@ -52,7 +51,15 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
                         return measure_matrix(A);
                     });
 
-    out.close();
+    run_one_sweep("multipoleA", "multipoleA_m_gamma_x_m_hex.csv", make_m_gamma_x_m_path(20), omega_lo, omega_hi, n_omega,
+                    [&](double omega, double alpha_x, double alpha_y) {
+                    MatrixXcd A;
+                    const cpxd omega_c(omega, omega_imag);
+                    Utils::multipole_crystal_A(A, n_multipole, Rs, shifts, omega_c / v, omega_c / v_b,
+                                            Vector2d(alpha_x, alpha_y), a1, a2, delta);
+                    return measure_matrix(A);
+                });
+
     std::cout << "[wrote] " << filename
                 << " (omega,sigma_min(log10),log_abs_det)\n";
 }

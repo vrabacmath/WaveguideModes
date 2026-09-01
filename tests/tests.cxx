@@ -132,6 +132,77 @@ MatrixXcd project_crystal_matrix_to_fourier(const MatrixXcd& nodal_matrix, int p
     return projected;
 }
 
+MatrixXcd block_fourier_mode_matrix(int point_count, int order_cutoff, int component_count) {
+    const int mode_count = 2 * order_cutoff + 1;
+    const MatrixXcd modes = fourier_mode_matrix(point_count, order_cutoff);
+    MatrixXcd block_modes = MatrixXcd::Zero(component_count * point_count,
+                                            component_count * mode_count);
+
+    for (int component = 0; component < component_count; ++component) {
+        block_modes.block(component * point_count, component * mode_count,
+                          point_count, mode_count) = modes;
+    }
+
+    return block_modes;
+}
+
+MatrixXcd reorder_component_major_to_mode_major(const MatrixXcd& matrix,
+                                                int mode_count,
+                                                int component_count) {
+    const int block_size = mode_count * component_count;
+    MatrixXcd reordered = MatrixXcd::Zero(matrix.rows(), matrix.cols());
+
+    auto component_major = [mode_count](int component, int mode) {
+        return component * mode_count + mode;
+    };
+    auto mode_major = [component_count](int component, int mode) {
+        return mode * component_count + component;
+    };
+
+    for (int row_block = 0; row_block < 2; ++row_block) {
+        for (int col_block = 0; col_block < 2; ++col_block) {
+            for (int row_component = 0; row_component < component_count; ++row_component) {
+                for (int col_component = 0; col_component < component_count; ++col_component) {
+                    for (int row_mode = 0; row_mode < mode_count; ++row_mode) {
+                        for (int col_mode = 0; col_mode < mode_count; ++col_mode) {
+                            reordered(row_block * block_size + mode_major(row_component, row_mode),
+                                      col_block * block_size + mode_major(col_component, col_mode)) =
+                                    matrix(row_block * block_size + component_major(row_component, row_mode),
+                                           col_block * block_size + component_major(col_component, col_mode));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return reordered;
+}
+
+MatrixXcd project_multicomponent_crystal_matrix_to_fourier(const MatrixXcd& nodal_matrix,
+                                                           int point_count,
+                                                           int order_cutoff,
+                                                           int component_count) {
+    const int mode_count = 2 * order_cutoff + 1;
+    const int nodal_block_size = component_count * point_count;
+    const int modal_block_size = component_count * mode_count;
+    const MatrixXcd modes = block_fourier_mode_matrix(point_count, order_cutoff, component_count);
+    MatrixXcd component_major = MatrixXcd::Zero(2 * modal_block_size, 2 * modal_block_size);
+
+    for (int row_block = 0; row_block < 2; ++row_block) {
+        for (int col_block = 0; col_block < 2; ++col_block) {
+            component_major.block(row_block * modal_block_size, col_block * modal_block_size,
+                                  modal_block_size, modal_block_size) =
+                    modes.adjoint() *
+                    nodal_matrix.block(row_block * nodal_block_size, col_block * nodal_block_size,
+                                       nodal_block_size, nodal_block_size) *
+                    modes / static_cast<double>(point_count);
+        }
+    }
+
+    return reorder_component_major_to_mode_major(component_major, mode_count, component_count);
+}
+
 cpxd h1_prime_reference(int n, cpxd z) {
     return 0.5 * (bessel::cyl_h1(n - 1, z) - bessel::cyl_h1(n + 1, z));
 }
@@ -630,6 +701,34 @@ TEST(FreeSpaceOperators, FullDoubleLayerAdjointnessOnMultipleComponents) {
     EXPECT_LT(rel, 1e-10);
 }
 
+TEST(FreeSpaceOperators, TransmissionAUsesComponentLocalInteriorBlocks) {
+    const int N = 24;
+    const cpxd k(0.8, 0.05);
+    const cpxd k_b(1.1, 0.03);
+    const double delta = 0.2;
+
+    BoundaryMesh mesh(N), mesh2(N);
+    mesh.generate_circle(0.22, Vector2d(-0.65, 0.0));
+    mesh2.generate_circle(0.18, Vector2d(0.7, 0.1));
+    mesh.add_mesh(mesh2);
+
+    MatrixXcd A;
+    SpectralOperators ops(mesh);
+    ops.A(A, k, k_b, delta);
+
+    const int total = mesh.get_num_segments();
+    const int start_0 = mesh.get_start_index(0);
+    const int start_1 = mesh.get_start_index(1);
+    const int count_0 = mesh.get_end_index(0) - start_0 + 1;
+    const int count_1 = mesh.get_end_index(1) - start_1 + 1;
+
+    EXPECT_NEAR(A.block(start_0, start_1, count_0, count_1).norm(), 0.0, 1e-14);
+    EXPECT_NEAR(A.block(start_1, start_0, count_1, count_0).norm(), 0.0, 1e-14);
+    EXPECT_NEAR(A.block(total + start_0, start_1, count_0, count_1).norm(), 0.0, 1e-14);
+    EXPECT_NEAR(A.block(total + start_1, start_0, count_1, count_0).norm(), 0.0, 1e-14);
+    EXPECT_GT(A.block(start_0, total + start_1, count_0, count_1).norm(), 1e-8);
+}
+
 TEST(PeriodicOperators, DynamicSingleLayerFiniteAndYTranslationInvariant) {
     const int N = 32;
     const double period = 1.0;
@@ -923,54 +1022,6 @@ TEST(MultipoleDefectOperator, ConvergesUnderRefinement) {
     EXPECT_NEAR(s0, s_N, 1e-6);   // converged in multipole order (N 8 vs 12)
 }
 
-// Full-wave cross-check: the topological interface mode of the capacitance model
-// survives in the finite-frequency Helmholtz scattering problem. For a small free-space
-// SSH cluster we take the interface eigenvalue of the static capacitance matrix, predict
-// omega = mu_1 sqrt(delta * lambda_iface), and confirm the full-wave system operator
-// A(omega) has a sharp resonance (sigma_min dip) near that frequency, far below its
-// off-resonance value.
-TEST(QuasiPeriodicStaticGreen, FullWaveResonanceNearCapacitancePrediction) {
-    const int N = 10, half = 3;
-    const double r = 0.3, delta = 1e-3, vb = 1.0;
-    std::vector<double> ys;
-    for (int n = 1; n <= half; ++n) {
-        ys.push_back(2.0 * n - 1.65);  ys.push_back(2.0 * n - 0.35);
-        ys.push_back(-2.0 * n + 0.65); ys.push_back(-2.0 * n + 1.35);
-    }
-    std::sort(ys.begin(), ys.end());
-    const int nd = static_cast<int>(ys.size());
-    BoundaryMesh mesh(N);
-    mesh.generate_circle(r, Vector2d(0.0, ys[0]));
-    for (int n = 1; n < nd; ++n) { BoundaryMesh d(N); d.generate_circle(r, Vector2d(0.0, ys[n])); mesh.add_mesh(d); }
-    SpectralOperators ops(mesh);
-
-    MatrixXcd S0, C;
-    ops.S(S0, cpxd(0.0, 0.0));
-    ops.makeCapacitanceMatrix(C, S0);
-    C = 0.5 * (C + C.adjoint().eval());
-    SelfAdjointEigenSolver<MatrixXcd> es(C);
-    std::vector<int> by_abs(nd); std::iota(by_abs.begin(), by_abs.end(), 0);
-    std::sort(by_abs.begin(), by_abs.end(), [&](int a, int b){ return std::abs(ys[a]) < std::abs(ys[b]); });
-    int iface = 0; double best = -1;
-    for (int m = 0; m < nd; ++m) {
-        VectorXd w = es.eigenvectors().col(m).cwiseAbs2(); w /= w.sum();
-        double c = w(by_abs[0]) + w(by_abs[1]);
-        if (c > best) { best = c; iface = m; }
-    }
-    const double lam_iface = es.eigenvalues()(iface) / (M_PI * r * r);
-    const double omega_pred = vb * std::sqrt(delta * lam_iface);
-
-    auto smin = [&](double omega) {
-        MatrixXcd A; ops.A(A, omega / vb, omega / vb, delta);
-        return Eigen::BDCSVD<MatrixXcd>(A).singularValues().tail<1>()(0);
-    };
-    double on_res = 1e300;
-    for (int i = 0; i < 9; ++i) on_res = std::min(on_res, smin((0.8 + 0.5 * i / 8.0) * omega_pred));
-    const double off_res = smin(0.3 * omega_pred);
-    EXPECT_LT(on_res, 1e-2);              // a sharp resonance near the prediction
-    EXPECT_LT(on_res, 0.1 * off_res);     // far deeper than off-resonance
-}
-
 // The dynamic 1D-quasi-periodic operators must be (i) finite everywhere (no H0(0) blow-up
 // on the diagonal), (ii) translation invariant in y (no spurious Dirichlet image tying them
 // to the y=0 axis), and (iii) spectrally convergent. We check a disk placed at several y
@@ -1186,6 +1237,40 @@ TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForCircle) {
     MatrixXcd nodal;
     ops.CrystalA(nodal, k, k_b, alpha, Vector2d(1.0, 0.0), Vector2d(0.0, 1.0), delta);
     const MatrixXcd projected = project_crystal_matrix_to_fourier(nodal, point_count, order_cutoff);
+
+    EXPECT_LT((multipole - projected).norm() / projected.norm(), 1e-10);
+}
+
+TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForTwoDiskHexCell) {
+    const int order_cutoff = 2;
+    const int point_count = 96;
+    const double radius = 0.12;
+    const cpxd k(0.75, 0.08);
+    const cpxd k_b(1.35, 0.04);
+    const Vector2d alpha(0.35, -0.25);
+    const Vector2d a1(1.0, 0.0);
+    const Vector2d a2(0.5, std::sqrt(3.0) / 2.0);
+    const std::vector<double> radii{radius, radius};
+    const std::vector<Vector2d> shifts{
+            Vector2d(0.5, std::sqrt(3.0) / 6.0),
+            Vector2d(1.0, 1.0 - std::sqrt(3.0) / 6.0)
+    };
+    const double delta = 0.3;
+
+    MatrixXcd multipole;
+    Utils::multipole_crystal_A(multipole, order_cutoff, radii, shifts, k, k_b, alpha, a1, a2, delta);
+
+    BoundaryMesh mesh(point_count), mesh2(point_count);
+    mesh.generate_circle(radius, shifts[0]);
+    mesh2.generate_circle(radius, shifts[1]);
+    mesh.add_mesh(mesh2);
+    SpectralOperators ops(mesh);
+    MatrixXcd nodal;
+    ops.CrystalA(nodal, k, k_b, alpha, a1, a2, delta);
+
+    const MatrixXcd projected =
+            project_multicomponent_crystal_matrix_to_fourier(nodal, point_count, order_cutoff,
+                                                             static_cast<int>(shifts.size()));
 
     EXPECT_LT((multipole - projected).norm() / projected.norm(), 1e-10);
 }

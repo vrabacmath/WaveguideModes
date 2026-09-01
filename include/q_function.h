@@ -95,13 +95,16 @@ namespace QFunction {
             return cpxd(EULER_GAMMA, 0.0) + std::log(z) + sum;
         }
 
-        inline Vector2d reduce_to_brillouin_zone(const Vector2d& alpha) {
-            constexpr double two_pi = 2.0 * M_PI;
-            Vector2d reduced = alpha;
-            for (int j = 0; j < 2; ++j) {
-                reduced(j) -= two_pi * std::round(reduced(j) / two_pi);
-            }
-            return reduced;
+        inline Vector2d reduce_reciprocal_cell(const Vector2d& alpha, const Vector2d& b1, const Vector2d& b2) {
+            Matrix2d B;
+            B.col(0) = b1;
+            B.col(1) = b2;
+
+            Vector2d coeff = B.inverse() * alpha;
+            coeff(0) -= std::round(coeff(0));
+            coeff(1) -= std::round(coeff(1));
+
+            return B * coeff;
         }
 
         inline cpxd signed_power(cpxd z, int exponent) {
@@ -119,7 +122,7 @@ namespace QFunction {
             }
 
             cpxd z = order >= 0 ? cpxd(v.x(), -v.y()) : cpxd(v.x(), v.y());
-            return signed_power(z / k, p);
+            return pow(z / k, p);
         }
 
         inline cpxd spatial_integral(int order, cpxd k, double radius, double eta,
@@ -130,26 +133,34 @@ namespace QFunction {
 
             cpxd series = 0.0;
             cpxd c_power_over_factorial = 1.0;
+            int current_expint_order = 1 - order;
+            double E = expint_E_integer(current_expint_order, x);
             for (int j = 0; j < options.spatial_series_terms; ++j) {
                 if (j > 0) {
                     c_power_over_factorial *= c / static_cast<double>(j);
                 }
 
-                const int expint_order = j + 1 - order;
                 const cpxd term = c_power_over_factorial *
                                   std::pow(x, order - j) *
-                                  expint_E_integer(expint_order, x);
+                                  E;
                 series += term;
 
                 if (std::abs(term) <= options.spatial_series_tolerance * std::max(1.0, std::abs(series))) {
                     break;
                 }
+
+                if (current_expint_order == 0) {
+                    E = -std::expint(-x);
+                } else {
+                    E = (std::exp(-x) - x * E) / static_cast<double>(current_expint_order);
+                }
+                ++current_expint_order;
             }
 
             return radius_factor * series;
         }
 
-        inline cpxd tau_lattice_sum(int n, cpxd k, const Vector2d& alpha, const Options& options) {
+        inline cpxd tau_lattice_sum(int n, cpxd k, const Vector2d& alpha, Vector2d a1, Vector2d a2, Vector2d d, const Options& options) {
             if (std::abs(k) <= std::numeric_limits<double>::epsilon()) {
                 throw std::domain_error("q_function requires a nonzero wavenumber k");
             }
@@ -157,20 +168,30 @@ namespace QFunction {
                 throw std::domain_error("q_function cutoffs must be non-negative");
             }
 
-            const Vector2d beta = reduce_to_brillouin_zone(alpha);
-            const double eta = ewald_eta(options);
+            Matrix2d A;
+            A.col(0) = a1;
+            A.col(1) = a2;
+            double area = abs(a1.x() * a2.y() - a1.y() * a2.x());
+
+            // reciprocal lattice vectors
+            Matrix2d B = 2. * M_PI * A.inverse().transpose();
+            Vector2d b1 = B.col(0);
+            Vector2d b2 = B.col(1);
+
+            const Vector2d beta = reduce_reciprocal_cell(alpha, b1, b2);
+            const double eta = ewald_eta(options) / sqrt(area);
             const int p = std::abs(n);
             const cpxd I(0.0, 1.0);
 
             cpxd tau = 0.0;
-            if (n == 0) {
+            if (n == 0 && d.isZero(1e-12)) {
                 tau += -1.0 - I * M_1_PI * expint_Ei(k * k / (4.0 * eta * eta));
             }
 
             cpxd spectral_sum = 0.0;
             for (int m1 = -options.reciprocal_cutoff; m1 <= options.reciprocal_cutoff; ++m1) {
                 for (int m2 = -options.reciprocal_cutoff; m2 <= options.reciprocal_cutoff; ++m2) {
-                    Vector2d beta_m = beta + 2.0 * M_PI * Vector2d(m1, m2);
+                    Vector2d beta_m = beta + m1 * b1 + m2 * b2;
                     const double beta2 = beta_m.squaredNorm();
                     const cpxd denominator = k * k - beta2;
                     if (std::abs(denominator) <= options.wood_tolerance) {
@@ -179,22 +200,22 @@ namespace QFunction {
 
                     const cpxd angular = angular_power_over_k(beta_m, k, n);
                     const cpxd damping = std::exp((k * k - beta2) / (4.0 * eta * eta));
-                    spectral_sum += damping * angular / denominator;
+                    spectral_sum += damping * angular / denominator * exp(-I * beta_m.dot(d));
                 }
             }
-            tau += 4.0 * I * i_power(n) * spectral_sum;
+            tau += 4.0 * I * i_power(n) * spectral_sum / area;
 
             cpxd spatial_sum = 0.0;
             for (int m1 = -options.spatial_cutoff; m1 <= options.spatial_cutoff; ++m1) {
                 for (int m2 = -options.spatial_cutoff; m2 <= options.spatial_cutoff; ++m2) {
-                    if (m1 == 0 && m2 == 0) {
+                    if (m1 == 0 && m2 == 0 && d.isZero(1e-12)) {
                         continue;
                     }
 
-                    Vector2d lattice_point(m1, m2);
-                    const double radius = lattice_point.norm();
+                    Vector2d lattice_point = m1 * a1 + m2 * a2;
+                    const double radius = (lattice_point + d).norm();
                     const cpxd phase = std::exp(I * beta.dot(lattice_point));
-                    const cpxd angular = angular_power_over_k(lattice_point, k, n);
+                    const cpxd angular = angular_power_over_k(lattice_point + d, k, n);
                     const cpxd integral = spatial_integral(p, k, radius, eta, options);
                     spatial_sum += phase * angular * integral;
                 }
@@ -232,11 +253,12 @@ namespace QFunction {
      */
     inline cpxd q_function(int n, cpxd k, const Vector2d& alpha, const Options& options = {}) {
         return static_cast<double>(detail::parity(n)) *
-               detail::tau_lattice_sum(-n, k, alpha, options);
+               detail::tau_lattice_sum(-n, k, alpha, Vector2d(1, 0), Vector2d(0, 1), Vector2d(0, 0), options);
     }
 
-    inline cpxd q_function(int n, double k, const Vector2d& alpha, const Options& options = {}) {
-        return q_function(n, cpxd(k, 0.0), alpha, options);
+    inline cpxd q_function(int n, cpxd k, const Vector2d& alpha, Vector2d a1, Vector2d a2, Vector2d d, const Options& options = {}) {
+        return static_cast<double>(detail::parity(n)) *
+               detail::tau_lattice_sum(-n, k, alpha, a1, a2, d, options);
     }
 
 } // namespace QFunction

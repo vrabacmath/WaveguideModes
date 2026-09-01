@@ -91,7 +91,7 @@ def plot_grid(ax, filename, title):
         label = r"$\log_{10}\sigma_{\min}(A^\alpha)$"
 
     sc = ax.scatter(s, omega, c=values, s=25, cmap="viridis_r", rasterized=True)
-    mark_eigenvalue_lines(ax, omega.min(), omega.max())
+    # mark_eigenvalue_lines(ax, omega.min(), omega.max())
     ax.set_title(title)
     ax.set_xlim(0, 3)
     ax.set_xlabel("Bloch path")
@@ -101,8 +101,8 @@ def plot_grid(ax, filename, title):
 
 def plot_heatmaps():
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharey=True)
-    sc, label = plot_grid(axes[0], "crystalA_m_gamma_x_m.csv", "CrystalA")
-    plot_grid(axes[1], "multipoleA_m_gamma_x_m.csv", "multipoleA")
+    sc, label = plot_grid(axes[0], "build/crystal_hex_bands.csv", "CrystalA")
+    plot_grid(axes[1], "build/multipoleA_m_gamma_x_m_hex.csv", "multipoleA")
 
     axes[0].set_ylabel(r"Frequency $\omega$")
     for ax in axes:
@@ -143,13 +143,13 @@ def plot_band_lines():
     formulation (e.g. the flat feature at j_{0,1}/R = 2.4048/0.35 = 6.857) -- ignore those."""
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharey=True)
     sc = None
-    for ax, filename, title in [(axes[0], "crystalA_m_gamma_x_m.csv", "CrystalA"),
-                                (axes[1], "multipoleA_m_gamma_x_m.csv", "multipoleA")]:
+    for ax, filename, title in [(axes[0], "build/crystal_hex_bands.csv", "CrystalA"),
+                                (axes[1], "build/multipoleA_m_gamma_x_m_hex.csv", "multipoleA")]:
         bs, bw, bsig, (omega_lo, omega_hi) = extract_bands(filename)
         if bs.size:
             sc = ax.scatter(bs, bw, c=np.log10(np.maximum(bsig, 1e-12)), s=12, cmap="viridis",
                             vmax=np.log10(SIGMA_THRESHOLD), zorder=1)
-        mark_eigenvalue_lines(ax, omega_lo, omega_hi)  # green/red/gold, thick and in front
+        # mark_eigenvalue_lines(ax, omega_lo, omega_hi)  # green/red/gold, thick and in front
         ax.set_title(title)
         ax.set_xlim(0, 3)
         ax.set_ylim(omega_lo, omega_hi)

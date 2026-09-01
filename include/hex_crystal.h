@@ -85,6 +85,10 @@ public:
     std::pair<Eigen::Vector2d, Eigen::Vector2d> get_reciprocal_vectors() const { return {b1, b2}; }
     double get_delta() const { return delta; }
 
+    vector<double> Rs;
+    vector<Vector2d> shifts;
+    bool circles_mesh = false;
+
 private:
     BoundaryMesh mesh;
     double delta;

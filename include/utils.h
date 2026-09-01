@@ -580,6 +580,66 @@ namespace Utils {
         A_matrix.block(M, M, M, M) = -delta * dS_ext;
     }
 
+    inline void multipole_crystal_A(MatrixXcd &A_matrix, int N, vector<double> Rs, vector<Vector2d> shifts, cpxd k, cpxd k_b, Vector2d alpha, Vector2d a1, Vector2d a2, double delta) {
+        int M = 2 * N + 1;
+        int NR = Rs.size();
+        assert(NR == shifts.size() && "The number of radii and shifts must be the same.");
+
+        MatrixXcd S_ext(NR * M, NR * M), dS_ext(NR * M, NR * M), S_b(NR * M, NR * M), dS_b(NR * M, NR * M);
+
+        auto cyl_h1_prime = [](int n, cpxd z) {
+            return 0.5 * (bessel::cyl_h1(n - 1, z) - bessel::cyl_h1(n + 1, z));
+        };
+
+        auto cyl_j_prime = [](int n, cpxd z) {
+            return 0.5 * (bessel::cyl_j(n - 1, z) - bessel::cyl_j(n + 1, z));
+        };
+
+        for (int ri = 0; ri < NR; ri++) {
+            for (int rj = 0; rj < NR; rj++) {
+                double R_i = Rs[ri];
+                double R_j = Rs[rj];
+                Vector2d shift_i = shifts[ri];
+                Vector2d shift_j = shifts[rj];
+
+                Vector2d d = shift_i - shift_j;
+
+                const cpxd c = -cpxd(0, 0.5) * M_PI * R_j;
+
+                #pragma omp parallel for schedule(static) default(none) shared(S_ext, dS_ext, S_b, dS_b, N, NR, M, ri, rj, R_i, R_j, d, k, k_b, alpha, a1, a2, c, cyl_h1_prime, cyl_j_prime)
+                for (int i = 0; i < M; i++) {
+                    for (int j = 0; j < M; j++) {
+                        int m = i - N;
+                        int n = j - N;
+                        const cpxd j_source = bessel::cyl_j(n, k * R_j);
+                        const cpxd j_target = bessel::cyl_j(m, k * R_i);
+                        const cpxd jp_target = cyl_j_prime(m, k * R_i);
+                        if (i == j && ri == rj) {
+                            S_ext(i * NR + ri, i * NR + ri) = c * j_source * bessel::cyl_h1(m, k * R_i) +
+                                        c * j_source * QFunction::q_function(0, k, alpha, a1, a2, d) * j_target;
+                            dS_ext(i * NR + ri, i * NR + ri) = c * k * j_source * cyl_h1_prime(m, k * R_i) +
+                                        c * k * j_source * QFunction::q_function(0, k, alpha, a1, a2, d) * jp_target;
+                            S_b(i * NR + ri, i * NR + ri) = c * bessel::cyl_h1(n, k_b * R_j) * bessel::cyl_j(m, k_b * R_i);
+                            dS_b(i * NR + ri, i * NR + ri) = c * k_b * bessel::cyl_h1(n, k_b * R_j) * cyl_j_prime(m, k_b * R_i);
+                        } else {
+                            const cpxd q = QFunction::q_function(n - m, k, alpha, a1, a2, d);
+                            S_ext(i * NR + ri, j * NR + rj) = c * j_source * q * j_target;
+                            dS_ext(i * NR + ri, j * NR + rj) = c * k * j_source * q * jp_target;
+                            S_b(i * NR + ri, j * NR + rj) = 0.0;
+                            dS_b(i * NR + ri, j * NR + rj) = 0.0;
+                        }
+                    }
+                }
+            }
+        }
+
+        A_matrix = MatrixXcd::Zero(2 * M * NR, 2 * M * NR);
+        A_matrix.block(0, 0, M * NR, M * NR) = S_b;
+        A_matrix.block(0, M * NR, M * NR, M * NR) = -S_ext;
+        A_matrix.block(M * NR, 0, M * NR, M * NR) = dS_b;
+        A_matrix.block(M * NR, M * NR, M * NR, M * NR) = -delta * dS_ext;
+    }
+
     /**
      * Assemble the Fourier multipole matrices used for the defect-mode operator.
      *

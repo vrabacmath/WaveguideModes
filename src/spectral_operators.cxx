@@ -517,8 +517,10 @@ void SpectralOperators::DirPeriodicKstar(MatrixXcd &Kstar, cpxd k, double kbar, 
  * @brief Assemble the full coupled interior-exterior integral operator A for the 2D Helmholtz equation.
  *
  * Builds the 2N × 2N block system coupling interior (k_b) and exterior (k)
- * single-layer and adjoint double-layer operators.  A small imaginary part
- * is added to both wavenumbers (limiting absorption principle).
+ * single-layer and adjoint double-layer operators.  The interior operators are
+ * block diagonal across disconnected mesh components: each resonator has its
+ * own interior field.  A small imaginary part is added to both wavenumbers
+ * (limiting absorption principle).
  *
  * @param[out] A_matrix  Complex matrix (2N × 2N) to be filled.
  * @param      k         Exterior wavenumber (complex).
@@ -535,9 +537,9 @@ void SpectralOperators::A(MatrixXcd &A_matrix, cpxd k, cpxd k_b, double delta) c
             S_matrix_b, Kstar_matrix_b;
 
     SpectralOperators::S(S_matrix, k);
-    SpectralOperators::S(S_matrix_b, k_b);
+    SpectralOperators::S_diagonal(S_matrix_b, k_b);
     SpectralOperators::Kstar(Kstar_matrix, k);
-    SpectralOperators::Kstar(Kstar_matrix_b, k_b);
+    SpectralOperators::Kstar_diagonal(Kstar_matrix_b, k_b);
 
     A_matrix.block(0, 0, N, N) = S_matrix_b;
     A_matrix.block(0, N, N, N) = -S_matrix;
@@ -781,10 +783,10 @@ void SpectralOperators::CrystalA(MatrixXcd &A_matrix, cpxd k, cpxd k_b, Vector2d
 
     SpectralOperators::CrystalS(S_matrix, k, alpha, a1, a2);
 //    SpectralOperators::CrystalS(S_matrix_b, k_b, alpha, a1, a2);
-    SpectralOperators::S(S_matrix_b, k_b);
+    SpectralOperators::S_diagonal(S_matrix_b, k_b);
     SpectralOperators::CrystalKstar(Kstar_matrix, k, alpha, a1, a2);
 //    SpectralOperators::CrystalKstar(Kstar_matrix_b, k_b, alpha, a1, a2);
-    SpectralOperators::Kstar(Kstar_matrix_b, k_b);
+    SpectralOperators::Kstar_diagonal(Kstar_matrix_b, k_b);
 
     A_matrix.block(0, 0, N, N) = S_matrix_b;
     A_matrix.block(0, N, N, N) = -S_matrix;
