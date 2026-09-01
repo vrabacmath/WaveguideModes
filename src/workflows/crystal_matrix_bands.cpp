@@ -9,18 +9,21 @@ std::vector<KPoint> make_m_gamma_x_m_path(int points_per_segment) {
     std::vector<KPoint> path;
     path.reserve(3 * (points_per_segment - 1) + 1);
 
-    auto append_shift = [&](int shift, Vector2d start, Vector2d end) {
+    auto append_segment = [&](double& s0, Vector2d start, Vector2d end) {
+        const double length = (end - start).norm();
         for (int i = 0; i < points_per_segment; ++i) {
-            if (shift > 0 && i == 0) continue;
+            if (!path.empty() && i == 0) continue;
             const double t = static_cast<double>(i) / static_cast<double>(points_per_segment - 1);
             const Vector2d alpha = (1.0 - t) * start + t * end;
-            path.push_back({shift + t, alpha.x(), alpha.y()});
+            path.push_back({s0 + t * length, alpha.x(), alpha.y()});
         }
+        s0 += length;
     };
 
-    append_shift(0, Vector2d(M_PI, M_PI), Vector2d(0.0, 0.0));   // M -> Gamma
-    append_shift(1, Vector2d(0.0, 0.0), Vector2d(M_PI, 0.0));    // Gamma -> X
-    append_shift(2, Vector2d(M_PI, 0.0), Vector2d(M_PI, M_PI));  // X -> M
+    double s = 0.0;
+    append_segment(s, Vector2d(M_PI, M_PI), Vector2d(0.0, 0.0));   // M -> Gamma
+    append_segment(s, Vector2d(0.0, 0.0), Vector2d(M_PI, 0.0));    // Gamma -> X
+    append_segment(s, Vector2d(M_PI, 0.0), Vector2d(M_PI, M_PI));  // X -> M
     return path;
 }
 

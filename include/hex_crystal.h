@@ -30,6 +30,11 @@ inline MatrixMeasure measure_matrix(const MatrixXcd& A) {
     return {singular_values.tail<1>()(0), log_abs_det};
 }
 
+inline Vector3d last_3_sv(const MatrixXcd& A) {
+    const VectorXd singular_values = JacobiSVD<MatrixXcd>(A).singularValues();
+    return singular_values.tail<3>();
+}
+
 template <typename Measure>
 void run_one_sweep(const std::string& label,
                    const std::string& filename,
@@ -78,7 +83,7 @@ public:
 
     void compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega,
                                      double omega_imag, double v, double v_b,
-                                     const std::string& filename);
+                                     const std::string& filename, bool crystalA = true);
 
     BoundaryMesh get_mesh() const { return mesh; }
     std::pair<Eigen::Vector2d, Eigen::Vector2d> get_lattice_vectors() const { return {a1, a2}; }
@@ -97,7 +102,7 @@ private:
     Eigen::Vector2d b1;
     Eigen::Vector2d b2;
 
-    std::vector<KPoint> make_m_gamma_x_m_path(int points_per_segment);
+    std::vector<KPoint> make_m_gamma_k_m_path(int points_per_segment);
 };
 
 #endif // HEX_CRYSTAL_H

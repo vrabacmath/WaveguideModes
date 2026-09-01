@@ -23,6 +23,22 @@ DIRICHLET_ZEROS = [("j_{0,1}", 2.4048255577), ("j_{1,1}", 3.8317059702),
                    ("j_{1,2}", 7.0155866699)]  # interior Dirichlet eigenvalues -> spurious BIE lines
 
 
+def high_symmetry_ticks(s, middle_label=r"$X$"):
+    """Recover the four segment endpoints from the repeated CSV rows."""
+    unique_s = np.unique(np.round(s, 9))
+    if unique_s.size < 4:
+        return unique_s, [r"$M$"] * unique_s.size
+    points_per_segment = (unique_s.size + 2) // 3
+    endpoint_indices = [0, points_per_segment - 1, 2 * (points_per_segment - 1),
+                        3 * (points_per_segment - 1)]
+    endpoint_indices = [min(i, unique_s.size - 1) for i in endpoint_indices]
+    return unique_s[endpoint_indices], [r"$M$", r"$\Gamma$", middle_label, r"$M$"]
+
+
+def middle_label_for(filename):
+    return r"$K$" if "hex" in filename else r"$X$"
+
+
 def resolve_data_path(relative_path):
     cwd_path = DATA_ROOT / relative_path
     if cwd_path.exists() or cwd_path.parent.exists():
@@ -93,7 +109,10 @@ def plot_grid(ax, filename, title):
     sc = ax.scatter(s, omega, c=values, s=25, cmap="viridis_r", rasterized=True)
     # mark_eigenvalue_lines(ax, omega.min(), omega.max())
     ax.set_title(title)
-    ax.set_xlim(0, 3)
+    ticks, labels = high_symmetry_ticks(s, middle_label_for(filename))
+    ax.set_xlim(ticks[0], ticks[-1])
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels)
     ax.set_xlabel("Bloch path")
     ax.grid(True, alpha=0.22)
     return sc, label
@@ -102,16 +121,13 @@ def plot_grid(ax, filename, title):
 def plot_heatmaps():
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharey=True)
     sc, label = plot_grid(axes[0], "build/crystal_hex_bands.csv", "CrystalA")
-    plot_grid(axes[1], "build/multipoleA_m_gamma_x_m_hex.csv", "multipoleA")
+    plot_grid(axes[1], "build/multipoleA_m_gamma_k_m_hex.csv", "multipoleA")
 
     axes[0].set_ylabel(r"Frequency $\omega$")
-    for ax in axes:
-        ax.set_xticks([0, 1, 2, 3])
-        ax.set_xticklabels([r"$M$", r"$\Gamma$", r"$X$", r"$M$"])
     handles, labels = eigenvalue_legend_handles()
     axes[1].legend(handles, labels, fontsize=7, loc="upper right")
     fig.colorbar(sc, ax=axes, label=label)
-    fig.suptitle("Square-lattice bulk bands along M-Gamma-X-M")
+    fig.suptitle("Bulk bands along M-Gamma-K-M")
     fig.savefig(resolve_data_path("crystal_matrix_bands.pdf"), dpi=250, bbox_inches="tight")
 
 
@@ -136,7 +152,7 @@ def extract_bands(filename, sigma_threshold=SIGMA_THRESHOLD):
 
 
 def plot_band_lines():
-    """Plot the bulk bands as the (color-coded) minima of sigma_min along M-Gamma-X-M, instead of a
+    """Plot the bulk bands as the (color-coded) minima of sigma_min along the high-symmetry path, instead of a
     heatmap. Green dashed lines mark the disk's interior Neumann eigenvalues j'_{m,1}/R (where the
     real high-contrast bands sit); red dotted lines mark the interior Dirichlet eigenvalues
     j_{m,n}/R, which produce *spurious* perfectly-flat lines in the single-layer BIE / multipole
@@ -144,18 +160,19 @@ def plot_band_lines():
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharey=True)
     sc = None
     for ax, filename, title in [(axes[0], "build/crystal_hex_bands.csv", "CrystalA"),
-                                (axes[1], "build/multipoleA_m_gamma_x_m_hex.csv", "multipoleA")]:
+                                (axes[1], "build/multipoleA_m_gamma_k_m_hex.csv", "multipoleA")]:
+        ticks, tick_labels = high_symmetry_ticks(load_csv(filename, 6)[:, 0], middle_label_for(filename))
         bs, bw, bsig, (omega_lo, omega_hi) = extract_bands(filename)
         if bs.size:
             sc = ax.scatter(bs, bw, c=np.log10(np.maximum(bsig, 1e-12)), s=12, cmap="viridis",
                             vmax=np.log10(SIGMA_THRESHOLD), zorder=1)
         # mark_eigenvalue_lines(ax, omega_lo, omega_hi)  # green/red/gold, thick and in front
         ax.set_title(title)
-        ax.set_xlim(0, 3)
+        ax.set_xlim(ticks[0], ticks[-1])
         ax.set_ylim(omega_lo, omega_hi)
         ax.set_xlabel("Bloch path")
-        ax.set_xticks([0, 1, 2, 3])
-        ax.set_xticklabels([r"$M$", r"$\Gamma$", r"$X$", r"$M$"])
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(tick_labels)
         ax.grid(True, alpha=0.22)
 
     axes[0].set_ylabel(r"Frequency $\omega$")
@@ -163,7 +180,7 @@ def plot_band_lines():
     fig.legend(handles, labels, fontsize=7, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.04), frameon=True)
     if sc is not None:
         fig.colorbar(sc, ax=axes, label=r"$\log_{10}\sigma_{\min}$")
-    fig.suptitle(f"Square-lattice bulk bands along M-Gamma-X-M  (R={CRYSTAL_RADIUS}, band minima)")
+    fig.suptitle(f"Bulk bands along M-Gamma-K-M  (R={CRYSTAL_RADIUS}, band minima)")
     fig.savefig(resolve_data_path("crystal_matrix_band_lines.pdf"), dpi=250, bbox_inches="tight")
 
 
