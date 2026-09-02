@@ -83,7 +83,7 @@ public:
 
     void compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega,
                                      double omega_imag, double v, double v_b,
-                                     const std::string& filename, bool crystalA = true);
+                                     const std::string& filename, int Npath = 20, bool crystalA = true);
 
     BoundaryMesh get_mesh() const { return mesh; }
     std::pair<Eigen::Vector2d, Eigen::Vector2d> get_lattice_vectors() const { return {a1, a2}; }

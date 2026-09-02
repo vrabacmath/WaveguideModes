@@ -232,14 +232,15 @@ int main(int argc, char** argv) {
     // brand new experiment: hexagonal lattice of circular disks, compute the high-symmetry bands, the python file is now plotting this
     if (mode == "hexagonal-lattice") {
         const int n_omega = (argc > 2) ? std::stoi(argv[2]) : 20;
-        const int n_alpha = (argc > 3) ? std::stoi(argv[3]) : 20;
-        const double r1 = (argc > 4) ? std::stod(argv[4]) : 0.12;
-        const double r2 = (argc > 5) ? std::stod(argv[5]) : 0.12;
-        const double omega_lo = (argc > 6) ? std::stod(argv[6]) : 0.0;
-        const double omega_hi = (argc > 7) ? std::stod(argv[7]) : 5.0;
-        const double delta = (argc > 8) ? std::stod(argv[8]) : 0.001;
-        const double v = (argc > 9) ? std::stod(argv[9]) : 1.0;
-        const double v_b = (argc > 10) ? std::stod(argv[10]) : 1.0;
+        const int n_path = (argc > 3) ? std::stoi(argv[3]) : 20;
+        const int n_alpha = (argc > 4) ? std::stoi(argv[4]) : 20;
+        const double r1 = (argc > 5) ? std::stod(argv[5]) : 0.12;
+        const double r2 = (argc > 6) ? std::stod(argv[6]) : 0.12;
+        const double omega_lo = (argc > 7) ? std::stod(argv[7]) : 0.0;
+        const double omega_hi = (argc > 8) ? std::stod(argv[8]) : 5.0;
+        const double delta = (argc > 9) ? std::stod(argv[9]) : 0.001;
+        const double v = (argc > 10) ? std::stod(argv[10]) : 1.0;
+        const double v_b = (argc > 11) ? std::stod(argv[11]) : 1.0;
         std::cout << "Computing high-symmetry bands for a hexagonal lattice of circular disks with parameters:\n"
                   << "  omega in [" << omega_lo << "," << omega_hi << "], " << n_omega << " omega samples, delta = " << delta
                   << ", v = " << v << ", v_b = " << v_b << "\n";
@@ -255,7 +256,7 @@ int main(int argc, char** argv) {
         crystal.shifts = {Vector2d(0.5, sqrt(3) / 6), Vector2d(1., sqrt(3) / 3)};
         crystal.circles_mesh = true;
 
-        crystal.compute_high_symmetry_bands(omega_lo, omega_hi, n_omega, delta, v, v_b, "crystal_hex_bands.csv", false);
+        crystal.compute_high_symmetry_bands(omega_lo, omega_hi, n_omega, delta, v, v_b, "crystal_hex_bands.csv", n_path, false);
         return 0;
     }
 

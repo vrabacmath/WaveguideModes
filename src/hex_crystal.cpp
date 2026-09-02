@@ -22,6 +22,11 @@ std::vector<KPoint> Crystal::make_m_gamma_k_m_path(int points_per_segment) {
 
     // hexagonal Brillouin zone: M is an edge midpoint and K is an adjacent corner.
     double s = 0.0;
+    cout << "Reciprocal lattice vectors: " << b1.transpose() << ", " << b2.transpose() << "\n";
+    cout << "Gamma point: " << Vector2d(0.0, 0.0).transpose() << "\n";
+    cout << "M point: " << (0.5 * b1).transpose() / M_PI << "pi\n";
+    cout << "K point: " << ((2.0 * b1 + b2) / 3.0).transpose() / M_PI << "pi\n";
+
     append_segment(s, 0.5 * b1, Vector2d(0.0, 0.0));   // M -> Gamma
     append_segment(s, Vector2d(0.0, 0.0), (2.0 * b1 + b2) / 3.0);  // Gamma -> K
     append_segment(s, (2.0 * b1 + b2) / 3.0, 0.5 * b1);  // K -> M
@@ -30,7 +35,7 @@ std::vector<KPoint> Crystal::make_m_gamma_k_m_path(int points_per_segment) {
 
 
 void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega, double omega_imag,
-                                            double v, double v_b, const std::string& filename, bool crystalA) {
+                                            double v, double v_b, const std::string& filename, int Npath, bool crystalA) {
     n_omega = std::max(n_omega, 3);
     if (!(omega_lo < omega_hi)) std::swap(omega_lo, omega_hi);
 
@@ -46,7 +51,7 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
 
     if (crystalA) {
         SpectralOperators ops(mesh);
-        run_one_sweep("CrystalA", filename, make_m_gamma_k_m_path(20), omega_lo, omega_hi, n_omega,
+        run_one_sweep("CrystalA", filename, make_m_gamma_k_m_path(Npath), omega_lo, omega_hi, n_omega,
                         [&](double omega, double alpha_x, double alpha_y) {
                             MatrixXcd A;
                             const cpxd omega_c(omega, omega_imag);
@@ -56,7 +61,7 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
                         });
     }
 
-    run_one_sweep("multipoleA", "multipoleA_m_gamma_k_m_hex.csv", make_m_gamma_k_m_path(20), omega_lo, omega_hi, n_omega,
+    run_one_sweep("multipoleA", "multipoleA_m_gamma_k_m_hex.csv", make_m_gamma_k_m_path(Npath), omega_lo, omega_hi, n_omega,
                     [&](double omega, double alpha_x, double alpha_y) {
                     MatrixXcd A;
                     const cpxd omega_c(omega, omega_imag);
@@ -65,7 +70,7 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
 
                     Vector3d last_3_singular_values = last_3_sv(A);
                     Vector2d last_2_singular_values = last_3_singular_values.tail<2>();
-                    if (last_2_singular_values.isZero(0.1 * last_3_singular_values(0))) {
+                    if (last_2_singular_values.isZero(0.1 * last_3_singular_values(0)) && abs(last_2_singular_values(0) - last_2_singular_values(1)) < 1e-7) {
                         std::cout << "There could be a Dirac point at omega=" << omega
                                     << ", alpha=(" << alpha_x << "," << alpha_y << ")\n";
                         std::cout << "  last 3 singular values: " << last_3_singular_values.transpose() << "\n";

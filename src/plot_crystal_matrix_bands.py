@@ -157,10 +157,16 @@ def plot_band_lines():
     real high-contrast bands sit); red dotted lines mark the interior Dirichlet eigenvalues
     j_{m,n}/R, which produce *spurious* perfectly-flat lines in the single-layer BIE / multipole
     formulation (e.g. the flat feature at j_{0,1}/R = 2.4048/0.35 = 6.857) -- ignore those."""
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharey=True)
+    plots = [
+        # ("build/crystal_hex_bands.csv", "CrystalA"),
+        ("build/multipoleA_m_gamma_k_m_hex.csv", "multipoleA"),
+    ]
+
+    fig, axes = plt.subplots(1, len(plots), figsize=(5.8 * len(plots), 4.8),
+                             sharey=True, squeeze=False)
+    axes = axes.ravel()
     sc = None
-    for ax, filename, title in [(axes[0], "build/crystal_hex_bands.csv", "CrystalA"),
-                                (axes[1], "build/multipoleA_m_gamma_k_m_hex.csv", "multipoleA")]:
+    for ax, (filename, title) in zip(axes, plots):
         ticks, tick_labels = high_symmetry_ticks(load_csv(filename, 6)[:, 0], middle_label_for(filename))
         bs, bw, bsig, (omega_lo, omega_hi) = extract_bands(filename)
         if bs.size:
@@ -175,12 +181,23 @@ def plot_band_lines():
         ax.set_xticklabels(tick_labels)
         ax.grid(True, alpha=0.22)
 
+    # plt.scatter([ticks[2], ticks[2]], [0.250627, 7.06767], color = 'red', label="possible Dirac points")
+    plt.scatter([ticks[2], ticks[2], ticks[2], ticks[2], ticks[2], ticks[2]], [17.1429, 10.0752, 12.2306, 14.9624, 16.391, 18.8221], color = 'red', label="possible Dirac points")
+    plt.legend(loc="center", fontsize=7)
+
     axes[0].set_ylabel(r"Frequency $\omega$")
     handles, labels = eigenvalue_legend_handles()
     fig.legend(handles, labels, fontsize=7, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.04), frameon=True)
     if sc is not None:
         fig.colorbar(sc, ax=axes, label=r"$\log_{10}\sigma_{\min}$")
-    fig.suptitle(f"Bulk bands along M-Gamma-K-M  (R={CRYSTAL_RADIUS}, band minima)")
+    subtitle = (r"$a1=(1,  0)$, "
+                r"$a2=(\frac{1}{2}, \frac{\sqrt{3}}{2})$," "\n"
+                r"$b1=(2\pi,  -\frac{2\pi}{\sqrt{3}})$, "
+                r"$b2=(0, 4\pi/\sqrt{3})$," "\n"
+                r"$M=(\pi,-\frac{\sqrt{3}}{3}\pi)$, "
+                r"$\Gamma=(0,0)$, "
+                r"$K=(\frac{4\pi}{3},0)$")
+    fig.suptitle(f"Bulk bands along M-Gamma-K-M, 2 resonators R = 0.12 \n{subtitle} ", size=8)#(R={CRYSTAL_RADIUS}, band minima)\n{subtitle}")
     fig.savefig(resolve_data_path("crystal_matrix_band_lines.pdf"), dpi=250, bbox_inches="tight")
 
 
