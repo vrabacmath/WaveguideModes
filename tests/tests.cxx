@@ -1241,11 +1241,11 @@ TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForCircle) {
     EXPECT_LT((multipole - projected).norm() / projected.norm(), 1e-10);
 }
 
-TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForTwoDiskHexCell) {
+TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForTwoDiskHexCellLowK) {
     const int order_cutoff = 2;
     const int point_count = 96;
     const double radius = 0.12;
-    const cpxd k(0.75, 0.08);
+    const cpxd k(1.75, 0.08);
     const cpxd k_b(1.35, 0.04);
     const Vector2d alpha(0.35, -0.25);
     const Vector2d a1(1.0, 0.0);
@@ -1273,6 +1273,40 @@ TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForTwoDiskHexCell) 
                                                              static_cast<int>(shifts.size()));
 
     EXPECT_LT((multipole - projected).norm() / projected.norm(), 1e-10);
+}
+
+TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForTwoDiskHexCellHighK) {
+    const int order_cutoff = 7;
+    const int point_count = 156;
+    const double radius = 0.12;
+    const cpxd k(10.75, 0.08);
+    const cpxd k_b(11.35, 0.04);
+    const Vector2d alpha(0.35, -0.25);
+    const Vector2d a1(1.0, 0.0);
+    const Vector2d a2(0.5, std::sqrt(3.0) / 2.0);
+    const std::vector<double> radii{radius, radius};
+    const std::vector<Vector2d> shifts{
+            Vector2d(0.5, std::sqrt(3.0) / 6.0),
+            Vector2d(1.0, 1.0 - std::sqrt(3.0) / 6.0)
+    };
+    const double delta = 0.3;
+
+    MatrixXcd multipole;
+    Utils::multipole_crystal_A(multipole, order_cutoff, radii, shifts, k, k_b, alpha, a1, a2, delta);
+
+    BoundaryMesh mesh(point_count), mesh2(point_count);
+    mesh.generate_circle(radius, shifts[0]);
+    mesh2.generate_circle(radius, shifts[1]);
+    mesh.add_mesh(mesh2);
+    SpectralOperators ops(mesh);
+    MatrixXcd nodal;
+    ops.CrystalA(nodal, k, k_b, alpha, a1, a2, delta);
+
+    const MatrixXcd projected =
+            project_multicomponent_crystal_matrix_to_fourier(nodal, point_count, order_cutoff,
+                                                             static_cast<int>(shifts.size()));
+
+    EXPECT_LT((multipole - projected).norm() / projected.norm(), 1e-5);
 }
 
 TEST(MultipoleDefectATest, LocalMapsMatchEffectiveSourceFormula) {

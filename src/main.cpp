@@ -25,6 +25,7 @@
 #include "workflows/bent_waveguide.h"
 #include "workflows/bent_waveguide_field.h"
 #include "workflows/bent_waveguide_exact.h"
+#include "workflows/dirac_bands.h"
 #include "hex_crystal.h"
 
 namespace {
@@ -244,7 +245,7 @@ int main(int argc, char** argv) {
         std::cout << "Computing high-symmetry bands for a hexagonal lattice of circular disks with parameters:\n"
                   << "  omega in [" << omega_lo << "," << omega_hi << "], " << n_omega << " omega samples, delta = " << delta
                   << ", v = " << v << ", v_b = " << v_b << "\n";
-        int N = 14;
+        int N = 36;
         BoundaryMesh mesh(N), mesh2(N);
         mesh.generate_circle(r1, Vector2d(0.5, sqrt(3) / 6));
         mesh2.generate_circle(r2, Vector2d(1., sqrt(3) / 3));
@@ -255,8 +256,16 @@ int main(int argc, char** argv) {
         crystal.Rs = {r1, r2};
         crystal.shifts = {Vector2d(0.5, sqrt(3) / 6), Vector2d(1., sqrt(3) / 3)};
         crystal.circles_mesh = true;
+        crystal.v = v;
+        crystal.v_b = v_b;
 
-        crystal.compute_high_symmetry_bands(omega_lo, omega_hi, n_omega, delta, v, v_b, "crystal_hex_bands.csv", n_path, false);
+        crystal.compute_high_symmetry_bands(omega_lo, omega_hi, n_omega, 1e-6, "crystal_hex_bands.csv", n_path, false);
+        // workflows::capacitance_dirac_bands(crystal, 0, 2, n_alpha);
+
+        // ./bin/WaveguideModes hexagonal-lattice 200 20 20 0.12 0.12 3.1925 3.1936 0.001 1.0 0.1
+        // ./bin/WaveguideModes hexagonal-lattice 300 20 20 0.12 0.12 1.5345 1.5354 0.001 1.0 0.1
+        // ./bin/WaveguideModes hexagonal-lattice 300 20 20 0.12 0.12 2.5460 2.5463 0.001 1.0 0.1
+
         return 0;
     }
 

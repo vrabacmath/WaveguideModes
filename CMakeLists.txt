@@ -142,6 +142,7 @@ add_library(waveguide_core STATIC
     src/workflows/bent_waveguide_field.cpp
     src/workflows/bent_waveguide_exact.cpp
     src/hex_crystal.cpp
+    src/workflows/dirac_bands.cpp
 )
 
 # Apply precompiled headers if enabled

@@ -82,8 +82,9 @@ public:
     }
 
     void compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega,
-                                     double omega_imag, double v, double v_b,
-                                     const std::string& filename, int Npath = 20, bool crystalA = true);
+                                     double omega_imag, const std::string& filename, int Npath = 20, bool crystalA = true);
+
+    std::vector<KPoint> make_m_gamma_k_m_path(int points_per_segment);
 
     BoundaryMesh get_mesh() const { return mesh; }
     std::pair<Eigen::Vector2d, Eigen::Vector2d> get_lattice_vectors() const { return {a1, a2}; }
@@ -93,6 +94,8 @@ public:
     vector<double> Rs;
     vector<Vector2d> shifts;
     bool circles_mesh = false;
+    double v = 1.0,
+           v_b = 1.0;
 
 private:
     BoundaryMesh mesh;
@@ -101,8 +104,6 @@ private:
     Eigen::Vector2d a2;
     Eigen::Vector2d b1;
     Eigen::Vector2d b2;
-
-    std::vector<KPoint> make_m_gamma_k_m_path(int points_per_segment);
 };
 
 #endif // HEX_CRYSTAL_H

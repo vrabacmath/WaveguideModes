@@ -35,7 +35,7 @@ std::vector<KPoint> Crystal::make_m_gamma_k_m_path(int points_per_segment) {
 
 
 void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega, double omega_imag,
-                                            double v, double v_b, const std::string& filename, int Npath, bool crystalA) {
+                                        const std::string& filename, int Npath, bool crystalA) {
     n_omega = std::max(n_omega, 3);
     if (!(omega_lo < omega_hi)) std::swap(omega_lo, omega_hi);
 
@@ -46,8 +46,16 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
                 << ", " << n_omega << " omega samples in [" << omega_lo << "," << omega_hi
                 << "]\n";
 
-    int n_multipole = 7;
+    // int n_multipole = 7;
+    double Rs_max = 0.0;
+    for (const auto& R : Rs) {
+        Rs_max = std::max(Rs_max, R);
+    }
+
+    double v_lo = std::min(v, v_b);
+    int n_multipole = std::max(7, static_cast<int>(std::ceil(omega_hi * Rs_max / v_lo)) + 5);
     assert(circles_mesh && "multipole crystal A only works for circular disks!");
+    std::cout << "Using " << n_multipole << " multipole terms.\n";
 
     if (crystalA) {
         SpectralOperators ops(mesh);

@@ -1,7 +1,9 @@
-"""Plot the unperturbed CrystalA / multipoleA bulk band comparison.
+"""Plot crystal band minima with the Dirac capacitance bands overlaid.
 
-Run from the repository root after:
-    ./build/bin/SubwavelengthResonators crystal-matrix-bands
+Run from the repository root:
+    python src/plot_crystal_matrix_bands.py
+Or from build:
+    python ../src/plot_crystal_matrix_bands.py
 """
 
 from pathlib import Path
@@ -12,6 +14,8 @@ import numpy as np
 SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 DATA_ROOT = Path.cwd()
 METRIC = "sigma_min"  # "sigma_min" or "log_abs_det"
+OVERLAY_CAPACITANCE = True
+CAPACITANCE_FILE = "build/dirac_capacitance_bands_leading.csv"
 
 # --- band-line extraction settings ----------------------------------------------------------
 CRYSTAL_RADIUS = 0.35    # MUST match the radius passed to run_crystal_matrix_bands in main.cpp
@@ -151,12 +155,30 @@ def extract_bands(filename, sigma_threshold=SIGMA_THRESHOLD):
     return np.array(bs), np.array(bw), np.array(bsig), (omega.min(), omega.max())
 
 
+def plot_capacitance_overlay(ax, omega_lo, omega_hi):
+    """Use the same (m, path arclength, real frequency) columns as plot.py."""
+    try:
+        data = load_csv(CAPACITANCE_FILE, 7)
+    except FileNotFoundError as exc:
+        print(f"[capacitance overlay skipped] {exc}")
+        return
+
+    visible = data[np.isfinite(data[:, :3]).all(axis=1)
+                   & (data[:, 2] >= omega_lo) & (data[:, 2] <= omega_hi)]
+    if not visible.size:
+        print("[capacitance overlay skipped] No frequencies in the crystal scan window; "
+              "check that both CSVs use the same radii and speeds.")
+        return
+
+    for m in np.unique(visible[:, 0].astype(int)):
+        rows = visible[visible[:, 0] == m]
+        ax.scatter(rows[:, 1], rows[:, 2], s=30, marker="o", facecolors="none",
+                   edgecolors="tab:red", linewidths=0.9, zorder=3,
+                   label=rf"Capacitance ($m={m}$)")
+
+
 def plot_band_lines():
-    """Plot the bulk bands as the (color-coded) minima of sigma_min along the high-symmetry path, instead of a
-    heatmap. Green dashed lines mark the disk's interior Neumann eigenvalues j'_{m,1}/R (where the
-    real high-contrast bands sit); red dotted lines mark the interior Dirichlet eigenvalues
-    j_{m,n}/R, which produce *spurious* perfectly-flat lines in the single-layer BIE / multipole
-    formulation (e.g. the flat feature at j_{0,1}/R = 2.4048/0.35 = 6.857) -- ignore those."""
+    """Overlay capacitance predictions on the color-coded crystal band minima."""
     plots = [
         # ("build/crystal_hex_bands.csv", "CrystalA"),
         ("build/multipoleA_m_gamma_k_m_hex.csv", "multipoleA"),
@@ -171,7 +193,10 @@ def plot_band_lines():
         bs, bw, bsig, (omega_lo, omega_hi) = extract_bands(filename)
         if bs.size:
             sc = ax.scatter(bs, bw, c=np.log10(np.maximum(bsig, 1e-12)), s=12, cmap="viridis",
-                            vmax=np.log10(SIGMA_THRESHOLD), zorder=1)
+                            vmax=np.log10(SIGMA_THRESHOLD), zorder=1,
+                            label=f"{title} minima")
+        if OVERLAY_CAPACITANCE:
+            plot_capacitance_overlay(ax, omega_lo, omega_hi)
         # mark_eigenvalue_lines(ax, omega_lo, omega_hi)  # green/red/gold, thick and in front
         ax.set_title(title)
         ax.set_xlim(ticks[0], ticks[-1])
@@ -180,14 +205,14 @@ def plot_band_lines():
         ax.set_xticks(ticks)
         ax.set_xticklabels(tick_labels)
         ax.grid(True, alpha=0.22)
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(loc="best", fontsize=8)
 
     # plt.scatter([ticks[2], ticks[2]], [0.250627, 7.06767], color = 'red', label="possible Dirac points")
-    plt.scatter([ticks[2], ticks[2], ticks[2], ticks[2], ticks[2], ticks[2]], [17.1429, 10.0752, 12.2306, 14.9624, 16.391, 18.8221], color = 'red', label="possible Dirac points")
-    plt.legend(loc="center", fontsize=7)
+    # plt.scatter([ticks[2], ticks[2], ticks[2], ticks[2], ticks[2], ticks[2]], [17.1429, 10.0752, 12.2306, 14.9624, 16.391, 18.8221], color = 'red', label="possible Dirac points")
+    # plt.legend(loc="center", fontsize=7)
 
     axes[0].set_ylabel(r"Frequency $\omega$")
-    handles, labels = eigenvalue_legend_handles()
-    fig.legend(handles, labels, fontsize=7, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.04), frameon=True)
     if sc is not None:
         fig.colorbar(sc, ax=axes, label=r"$\log_{10}\sigma_{\min}$")
     subtitle = (r"$a1=(1,  0)$, "
@@ -198,7 +223,9 @@ def plot_band_lines():
                 r"$\Gamma=(0,0)$, "
                 r"$K=(\frac{4\pi}{3},0)$")
     fig.suptitle(f"Bulk bands along M-Gamma-K-M, 2 resonators R = 0.12 \n{subtitle} ", size=8)#(R={CRYSTAL_RADIUS}, band minima)\n{subtitle}")
-    fig.savefig(resolve_data_path("crystal_matrix_band_lines.pdf"), dpi=250, bbox_inches="tight")
+    out = resolve_data_path("crystal_matrix_band_lines.pdf")
+    fig.savefig(out, dpi=250, bbox_inches="tight")
+    print(f"[wrote] {out}")
 
 
 if __name__ == "__main__":
