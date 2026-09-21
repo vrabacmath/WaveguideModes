@@ -37,7 +37,7 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
                               int mode_index, int grid_points, double v, double v_b,
                               double v_bd) {
     const BentPatch p = build_bent_patch(radius, defect_radius, m_ang, n_defect, n_clad,
-                                         fringe, points_per_disk, v, v_b, v_bd);
+                                         0, fringe, points_per_disk, v, v_b, v_bd);
     const int modes = p.modes;
     const int n_main = static_cast<int>(p.main_indices.size());
 

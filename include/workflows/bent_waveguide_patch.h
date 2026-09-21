@@ -59,7 +59,8 @@ struct BentPatch {
 
     MatrixXcd G;  // Ntot x (modes * n_main): Dirichlet traces of the interior Neumann modes
     MatrixXcd X;  // Ntot x (modes * n_main): S^{-1} G -- single-layer density on ALL disks
-    MatrixXcd C;  // (modes*n_main)^2: exterior DtN projected onto the defect-mode subspace
+    MatrixXcd C;  // (modes*cb_main)^2: exterior DtN projected onto the defect-mode subspace
+    MatrixXcd Ccb;// (modes*cb_main)x(modes*n_main): rectangular with extra Colbrook rows for the outer defect layers
     VectorXd sigma;
 
     cpxd k, kVb, kV, kVbd;  // kV: background speed, kVb: crystal interior, kVbd: defect interior
@@ -87,9 +88,44 @@ Parameters:
 * v_b = wave speed in the cladding crystal interior
 * v_bd = wave speed in the defect interior*/
 BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n_defect,
-                           int n_clad, int fringe, int points_per_disk, double v = 1.0,
+                           int n_clad, int colbrook, int fringe, int points_per_disk, double v = 1.0,
                            double v_b = 1.0, double v_bd = 1.0, bool verbose = true);
 
-}  // namespace workflows
+struct TessellatedPatch {
+    int window_radius, patch_radius, colbrook;
+    std::vector<BoundaryMesh> meshes;
+
+    std::vector<std::map<std::pair<int, int>, int>> defect_indices;  // source-relative site -> disk index
+    std::vector<std::vector<int>> main_indices; // disk indices, ordered by offset d = -window_radius..window_radius
+
+    // Columns: ell = -patch_radius..patch_radius; rows include colbrook extra sites at each end.
+    MatrixXcd bigC;
+    // Template t + window_radius excites path site t. Row blocks are offsets d from that site.
+    std::vector<MatrixXcd> patch_colC;
+
+    cpxd k, kVb, kV, kVbd;  // kV: background speed, kVb: crystal interior, kVbd: defect interior
+    double omega0, beta, Anorm, radius, defect_radius;
+
+    int N, modes, m_ang;
+};
+
+// Reuse cached block columns without any boundary-integral solves. There must be 2*w+1
+// block columns, each of size (modes*(2*w+1)) x modes. Columns at the endpoints extend the
+// capacitance matrix (operator). This assumes the endpoint columns already approximate
+// the straight-arm environment.
+// colbrook >= w retains every row of the chosen stencil; smaller values crop its tails.
+MatrixXcd assemble_tessellated_columns(const std::vector<MatrixXcd>& columns,
+                                     int patch_radius, int colbrook);
+
+// Local square meshes have half-width window_radius + fringe, centered on the source disk.
+// Only path offsets -window_radius..window_radius are projected into each coupling column.
+// The bend uses BentPatch::site_at; bent=false uses the straight line (ell, 0).
+TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, int colbrook, bool bent,
+                                         double radius, double defect_radius, int m_ang,
+                                         int fringe, int points_per_disk, double v = 1.0,
+                                         double v_b = 1.0, double v_bd = 1.0, bool verbose = true);
+
+
+} // namespace workflows
 
 #endif  // SUBWAVELENGTHRESONATORS_WORKFLOWS_BENT_WAVEGUIDE_PATCH_H
