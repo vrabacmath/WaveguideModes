@@ -307,39 +307,92 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        // The expensive local solves are independent of the assembled patch radius.
-        const auto p = workflows::build_tessellated_patch(window_radius, min_radius, colbrook,
-            true, 0.35, 0.455, m_ang, 1, npd, 1.0, 1.0, 1.0);
-        if (!p.bigC.allFinite())
-            throw std::runtime_error("Tessellated operator contains non-finite entries");
-        const int row_offset = p.modes * colbrook;
-        if (argc <= 7) {
-            // Only use eigenvalues of the SQUARE section as a heuristic scan bound.
-            // Keep all rows of bigC for the actual rectangular singular-value calculation.
-            const MatrixXcd squareC = p.bigC.middleRows(row_offset, p.bigC.cols());
-            ComplexEigenSolver<MatrixXcd> es(squareC, /*computeEigenvectors=*/false);
-            if (es.info() != Eigen::Success || !es.eigenvalues().allFinite())
-                throw std::runtime_error("Failed to estimate scan bound; supply z_min and z_max explicitly");
-            z_max = 1.5 * es.eigenvalues().real().maxCoeff();
-        }
-        if (!std::isfinite(z_max) || z_max <= z_min)
-            throw std::runtime_error("Invalid scan bound; supply z_min and z_max explicitly");
-        std::cout << "Colbrook scan: z in [" << z_min << ", " << z_max << "], "
-                  << Nz + 1 << " samples per radius\n";
+        // // The expensive local solves are independent of the assembled patch radius.
+        // const auto p = workflows::build_tessellated_patch(window_radius, min_radius, colbrook,
+        //     true, 0.35, 0.455, m_ang, 1, npd, 1.0, 1.0, 1.0);
+        // if (!p.bigC.allFinite())
+        //     throw std::runtime_error("Tessellated operator contains non-finite entries");
+        // const int row_offset = p.modes * colbrook;
+        // if (argc <= 7) {
+        //     // Only use eigenvalues of the SQUARE section as a heuristic scan bound.
+        //     // Keep all rows of bigC for the actual rectangular singular-value calculation.
+        //     const MatrixXcd squareC = p.bigC.middleRows(row_offset, p.bigC.cols());
+        //     ComplexEigenSolver<MatrixXcd> es(squareC, /*computeEigenvectors=*/false);
+        //     if (es.info() != Eigen::Success || !es.eigenvalues().allFinite())
+        //         throw std::runtime_error("Failed to estimate scan bound; supply z_min and z_max explicitly");
+        //     z_max = 1.5 * es.eigenvalues().real().maxCoeff();
+        // }
+        // if (!std::isfinite(z_max) || z_max <= z_min)
+        //     throw std::runtime_error("Invalid scan bound; supply z_min and z_max explicitly");
+        // std::cout << "Colbrook scan: z in [" << z_min << ", " << z_max << "], "
+        //           << Nz + 1 << " samples per radius\n";
 
-        for (int M = min_radius; M <= max_radius; M+=2) {
-            const MatrixXcd C = (M == min_radius) ? p.bigC :
-                workflows::assemble_tessellated_columns(p.patch_colC, M, colbrook);
-            MatrixXcd E = MatrixXcd::Zero(C.rows(), C.cols());
-            E.block(row_offset, 0, C.cols(), C.cols()).setIdentity();
-            const std::string filename = "bent_waveguide_singular_values" + std::to_string(M) + ".csv";
+        // for (int M = min_radius; M <= max_radius; M+=2) {
+        //     const MatrixXcd C = (M == min_radius) ? p.bigC :
+        //         workflows::assemble_tessellated_columns(p.patch_colC, M, colbrook);
+        //     MatrixXcd E = MatrixXcd::Zero(C.rows(), C.cols());
+        //     E.block(row_offset, 0, C.cols(), C.cols()).setIdentity();
+        //     const std::string filename = "bent_waveguide_singular_values" + std::to_string(M) + ".csv";
+        //     std::ofstream out_z;
+        //     out_z.exceptions(std::ios::failbit | std::ios::badbit);
+        //     out_z.open(filename);
+        //     out_z.precision(std::numeric_limits<double>::max_digits10);
+        //     std::cout << "Scanning radius " << M << ": " << C.rows() << " x " << C.cols() << "\n";
+        //     for (int zi = 0; zi <= Nz; ++zi) {
+        //         // An indexed grid gives every radius the same samples and includes both endpoints.
+        //         const double z = std::lerp(z_min, z_max, double(zi) / double(Nz));
+        //         const MatrixXcd shifted = C - z * E;
+        //         Eigen::BDCSVD<MatrixXcd> svd(shifted); 
+        //         if (svd.info() != Eigen::Success || !svd.singularValues().allFinite())
+        //             throw std::runtime_error("Singular-value scan failed at z=" + std::to_string(z));
+        //         out_z << z << "," << svd.singularValues().minCoeff() << "\n";
+        //     }
+        //     out_z.close();
+        //     std::cout << "[wrote] " << filename << "\n";
+        //     // if (M > max_radius / 2) break;
+        // }
+
+        // int n_min = 1, n_max = 6;
+        // for (int n = n_min; n <= n_max; ++n) {
+        //     const std::string filename = "bent_waveguide_singular_values_window_" + std::to_string(n) + ".csv";
+        //     std::ofstream out_z;
+        //     out_z.exceptions(std::ios::failbit | std::ios::badbit);
+        //     out_z.open(filename);
+            
+        //     const auto p = workflows::build_tessellated_patch(n, 20, colbrook,
+        //                             true, 0.35, 0.455, m_ang, 1, npd, 1.0, 1.0, 1.0);
+
+        //     const MatrixXcd C = workflows::assemble_tessellated_columns(p.patch_colC, n, colbrook);
+        //     MatrixXcd E = MatrixXcd::Zero(C.rows(), C.cols());
+        //     E.block(row_offset, 0, C.cols(), C.cols()).setIdentity();
+
+        //     for (int zi = 0; zi <= Nz; ++zi) {
+        //         const double z = std::lerp(z_min, z_max, double(zi) / double(Nz));
+        //         const MatrixXcd shifted = C - z * E;
+        //         Eigen::BDCSVD<MatrixXcd> svd(shifted); 
+        //         if (svd.info() != Eigen::Success || !svd.singularValues().allFinite())
+        //             throw std::runtime_error("Singular-value scan failed at z=" + std::to_string(z));
+        //         out_z << z << "," << svd.singularValues().minCoeff() << "\n";
+        //     }
+        //     out_z.close();
+        //     std::cout << "[wrote] " << filename << "\n";
+        // }
+        int n_min = 0, n_max = 6;
+        const auto p2 = workflows::build_tessellated_patch(4, 20, colbrook,
+                                    true, 0.35, 0.455, m_ang, 1, npd, 1.0, 1.0, 1.0);
+        for (int n = n_min; n <= n_max; ++n) {
+            const std::string filename = "bent_waveguide_singular_values_colbr_" + std::to_string(n) + ".csv";
             std::ofstream out_z;
             out_z.exceptions(std::ios::failbit | std::ios::badbit);
             out_z.open(filename);
-            out_z.precision(std::numeric_limits<double>::max_digits10);
-            std::cout << "Scanning radius " << M << ": " << C.rows() << " x " << C.cols() << "\n";
+
+            int row_offset = p2.modes * n;
+            const MatrixXcd C = workflows::assemble_tessellated_columns(p2.patch_colC, 4, n);
+            MatrixXcd E = MatrixXcd::Zero(C.rows(), C.cols());
+            E.block(row_offset, 0, C.cols(), C.cols()).setIdentity();
+            cout << "Scanning window " << n << ": " << C.rows() << " x " << C.cols() << "\n";
+
             for (int zi = 0; zi <= Nz; ++zi) {
-                // An indexed grid gives every radius the same samples and includes both endpoints.
                 const double z = std::lerp(z_min, z_max, double(zi) / double(Nz));
                 const MatrixXcd shifted = C - z * E;
                 Eigen::BDCSVD<MatrixXcd> svd(shifted); 
@@ -349,7 +402,6 @@ int main(int argc, char** argv) {
             }
             out_z.close();
             std::cout << "[wrote] " << filename << "\n";
-            // if (M > max_radius / 2) break;
         }
         return 0;
     }

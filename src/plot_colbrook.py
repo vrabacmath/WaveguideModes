@@ -5,6 +5,7 @@ import numpy as np
 
 SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 PATCH_SIZES = [2, 3, 4, 7, 10, *range(12, 21, 2)]
+WINDOW_SIZES = [*range(1,7)]
 NUM_MINIMA = 3
 MIN_Z_SEPARATION = 1.0  # z units; suppress nearby secondary dips, not a physical criterion
 
@@ -77,6 +78,51 @@ def main():
     fig.tight_layout()
     plt.show()
 
+    fig, ax = plt.subplots(figsize=(7.5, 5.0))
+    maxsdiff = []
+    n = 0
+    for n_window in WINDOW_SIZES:
+        filename = resolve(f"bent_waveguide_singular_values_window_{n_window}.csv")
+        patch = np.loadtxt(filename, delimiter=",", ndmin=2)
+        patch_z, patch_sigma_min = patch[:, 0], patch[:, 1]
+        minima = find_distinct_minima(patch_z, patch_sigma_min)
+        values = ", ".join(f"z={patch_z[i]:.6g} (sigma={patch_sigma_min[i]:.6g})" for i in minima)
+        print(f"N={n_window}: {values or 'no interior minima'}")
+        if len(minima) < NUM_MINIMA:
+            print(f"  Only {len(minima)} distinct minima found; not forcing {NUM_MINIMA}.")
+        line, = ax.plot(patch_z, patch_sigma_min, label=rf"$W = {n_window}$")
+        # # if n_window == max(WINDOW_SIZES):
+        # ax.scatter(patch_z[minima], patch_sigma_min[minima], marker="x", s=70,
+        #             color=line.get_color(), zorder=5)
+        # for i in minima:
+        #     ax.annotate(f"z = {patch_z[i]:.6g}", (patch_z[i], patch_sigma_min[i]),
+        #                 xytext=(0, 12), textcoords="offset points", ha="center",
+        #                 fontsize=9, color=line.get_color())
+        # print(f"Window size {n_window}: {minima} minima found.")
+        if (n > 0):
+            diff = np.abs(patch_sigma_min - last_patchsigma_min)
+            maxsdiff.append(diff.max())
+            print(f"Window size {n_window}: max difference from previous window: {diff.max()} at z={patch_z[diff.argmax()]:.6g}")
+        n+= 1
+        last_patchsigma_min = patch_sigma_min
+        last_patchz = patch_z
+
+
+    ax.set_xlabel("$z$")
+    ax.set_title("Min singular value of $C_{cb} - z E$ for increasing window/subpatch sizes")
+    ax.set_ylabel("min singular value of $C_{cb} - z E$")
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+
+    # fig = plt.figure(figsize=(7.5, 5.0))
+    # plt.semilogy([1, 2, 3, 4, 5], maxsdiff, marker="o")
+    # plt.xlabel("Window size index")
+    # plt.ylabel("Max difference in min singular value from previous window")
+    # plt.title("Convergence of min singular value with increasing window size")
+    # plt.grid()
+    # plt.tight_layout()
+    # plt.show()
 
 if __name__ == "__main__":
     main()
