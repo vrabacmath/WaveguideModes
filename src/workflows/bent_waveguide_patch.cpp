@@ -128,28 +128,37 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
 }
 
 MatrixXcd assemble_tessellated_columns(const std::vector<MatrixXcd>& columns,
+                                     const std::vector<std::vector<int>>& row_offsets,
                                      int patch_radius, int colbrook) {
-    if (columns.empty() || columns.size() % 2 == 0 || patch_radius < 0 || colbrook < 0)
-        throw std::invalid_argument("Expected an odd number of templates and nonnegative patch/row radii");
-    const int window_size = static_cast<int>(columns.size());
-    const int window_radius = window_size / 2;
+    if (columns.size() < 3 || columns.size() % 2 == 0 || patch_radius < 0 || colbrook < 0)
+        throw std::invalid_argument("Expected an odd number of templates including two straight endpoints, and nonnegative radii");
+    if (row_offsets.size() != columns.size())
+        throw std::invalid_argument("Each template requires explicit path offsets for its row blocks");
+    const int template_radius = static_cast<int>(columns.size()) / 2;
     const int modes = static_cast<int>(columns.front().cols());
-    if (patch_radius < window_radius || modes == 0)
-        throw std::invalid_argument("Patch radius must cover the window, and templates must have modes");
-    for (const auto& column : columns)
-        if (column.cols() != modes || column.rows() != modes * window_size)
+    if (modes == 0)
+        throw std::invalid_argument("Templates must contain at least one source mode");
+    for (std::size_t k = 0; k < columns.size(); ++k) {
+        const auto& offsets = row_offsets[k];
+        if (offsets.empty() || columns[k].cols() != modes ||
+            columns[k].rows() != modes * static_cast<int>(offsets.size()))
             throw std::invalid_argument("Each template must contain one mode block per path offset");
+        if (!std::is_sorted(offsets.begin(), offsets.end()) ||
+            std::adjacent_find(offsets.begin(), offsets.end()) != offsets.end() ||
+            !std::binary_search(offsets.begin(), offsets.end(), 0))
+            throw std::invalid_argument("Template path offsets must be strictly increasing and include zero");
+    }
 
     const int row_radius = patch_radius + colbrook;
     MatrixXcd bigC = MatrixXcd::Zero(modes * (2 * row_radius + 1),
                                     modes * (2 * patch_radius + 1));
     for (int j = -patch_radius; j <= patch_radius; ++j) {
-        const int mesh = std::clamp(j, -window_radius, window_radius) + window_radius;
-        for (int d = -window_radius; d <= window_radius; ++d) {
-            const int row = j + d;
+        const int mesh = std::clamp(j, -template_radius, template_radius) + template_radius;
+        for (std::size_t q = 0; q < row_offsets[mesh].size(); ++q) {
+            const int row = j + row_offsets[mesh][q];
             if (row < -row_radius || row > row_radius) continue;
             bigC.block(modes * (row + row_radius), modes * (j + patch_radius), modes, modes) =
-                columns[mesh].block(modes * (d + window_radius), 0, modes, modes);
+                columns[mesh].block(modes * q, 0, modes, modes);
         }
     }
     return bigC;
@@ -168,6 +177,8 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
     tp.window_radius = window_radius;
     tp.patch_radius = patch_radius;
     tp.colbrook = colbrook;
+    tp.fringe = fringe;
+    tp.bent = bent;
     tp.N = std::max(points_per_disk, 8);
     tp.m_ang = m_ang;
     tp.modes = (m_ang == 0) ? 1 : 2;
@@ -182,22 +193,30 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
     tp.Anorm = 1.0 / (std::sqrt(M_PI) * defect_radius *
                      std::sqrt(std::max(1.0 - double(m_ang * m_ang) / (tp.beta * tp.beta), 1e-12)));
 
-    const int window_size = 2 * window_radius + 1;
     const int mesh_radius = window_radius + fringe;
-    tp.meshes.resize(window_size);
-    tp.defect_indices.resize(window_size);
-    tp.main_indices.resize(window_size);
-    tp.patch_colC.resize(window_size);
+    const int template_radius = tp.template_radius();
+    const int template_count = 2 * template_radius + 1;
+    tp.meshes.resize(template_count);
+    tp.disks.resize(template_count);
+    tp.defect_indices.resize(template_count);
+    tp.main_indices.resize(template_count);
+    tp.row_offsets.resize(template_count);
+    tp.patch_colC.resize(template_count);
+    tp.patch_X.resize(template_count);
     const auto site_at = [bent](int ell) {
         return bent ? BentPatch::site_at(ell) : std::make_pair(ell, 0);
     };
 
-    for (int t = -window_radius; t <= window_radius; ++t) {
-        const int mesh = t + window_radius;
+    // At |t|=mesh_radius+1 the bend lies strictly outside the square mesh. These
+    // two templates are exactly straight and can be translated along their arms.
+    for (int t = -template_radius; t <= template_radius; ++t) {
+        const int mesh = t + template_radius;
         const auto source = site_at(t);
         auto& patch_mesh = tp.meshes[mesh];
+        auto& disks = tp.disks[mesh];
         auto& defects = tp.defect_indices[mesh];
         auto& main = tp.main_indices[mesh];
+        auto& offsets = tp.row_offsets[mesh];
 
         // Translate a square window to each source site; store coordinates relative to it.
         // Keep all defect disks in the square (including fringe) in the exterior solve.
@@ -207,16 +226,29 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
                 const bool defect = bent ? ((gx == 0 && gy >= 0) || (gy == 0 && gx >= 0))
                                          : (gy == 0);
                 if (defect) defects[{x, y}] = patch_mesh.get_num_meshes();
+                disks.push_back({defect ? defect_radius : radius, Vector2d(x, y)});
                 BoundaryMesh disk(tp.N);
-                disk.generate_circle(defect ? defect_radius : radius, Vector2d(x, y));
+                disk.generate_circle(disks.back().r, disks.back().c);
                 patch_mesh.add_mesh(disk);
             }
         }
-        // Matrix order follows path offsets, independently of the mesh's disk order.
-        for (int d = -window_radius; d <= window_radius; ++d) {
-            const auto target = site_at(t + d);
-            main.push_back(defects.at({target.first - source.first, target.second - source.second}));
+        // Retain the full core square, not a fixed number of steps along the guide.
+        // A target on the opposite arm can be inside the square with |ell-t| > w.
+        std::map<int, int> rows_by_offset;
+        for (const auto& [local, disk_index] : defects) {
+            if (std::abs(local.first) > window_radius || std::abs(local.second) > window_radius)
+                continue;
+            const int gx = local.first + source.first, gy = local.second + source.second;
+            const int ell = bent ? (gy == 0 ? -gx : gy) : gx;
+            rows_by_offset.emplace(ell - t, disk_index);
         }
+        for (const auto& [offset, disk_index] : rows_by_offset) {
+            offsets.push_back(offset);
+            main.push_back(disk_index);
+        }
+        const int window_size = static_cast<int>(main.size());
+        const int center_slot = static_cast<int>(std::lower_bound(offsets.begin(), offsets.end(), 0)
+                                                 - offsets.begin());
 
         const int Ntot = patch_mesh.get_num_segments();
         VectorXd sigma(Ntot);
@@ -233,22 +265,25 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
                 }
             }
         }
-        // d=0 is always block window_radius; a mesh disk index is NOT a G column index.
-        const MatrixXcd g0 = G.middleCols(tp.modes * window_radius, tp.modes);
+        // Only the source at local (0,0) is excited. Its row slot varies near the bend.
+        const MatrixXcd g0 = G.middleCols(tp.modes * center_slot, tp.modes);
         SpectralOperators ops(patch_mesh);
         MatrixXcd S, Kstar;
         ops.S(S, tp.k);
         ops.Kstar(Kstar, tp.k);
         const MatrixXcd X = S.partialPivLu().solve(g0);
+        tp.patch_X[mesh] = X;
         const MatrixXcd LamG = 0.5 * X + Kstar * X;
         tp.patch_colC[mesh] = -(tp.kVbd * tp.kVbd) / (2.0 * tp.omega0) *
                               (G.adjoint() * (sigma.asDiagonal() * LamG));
         if (verbose)
             std::cout << "Tessellation template " << mesh << ": source ell=" << t
-                      << ", " << patch_mesh.get_num_meshes() << " disks, " << Ntot << " boundary points\n";
+                      << ", " << patch_mesh.get_num_meshes() << " disks, " << Ntot << " boundary points, "
+                      << window_size << " retained defect sites (path offsets " << offsets.front()
+                      << ".." << offsets.back() << ")\n";
     }
 
-    tp.bigC = assemble_tessellated_columns(tp.patch_colC, patch_radius, colbrook);
+    tp.bigC = assemble_tessellated_columns(tp.patch_colC, tp.row_offsets, patch_radius, colbrook);
     return tp;
 }
 

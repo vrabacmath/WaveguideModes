@@ -84,6 +84,10 @@ public:
     void compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega,
                                      double omega_imag, const std::string& filename, int Npath = 20, bool crystalA = true);
 
+    void compute_local_bands(double omega_lo, double omega_hi, int n_omega,
+                             double omega_imag, const std::string& filename,
+                             Vector2d center, double radius, int n_alpha);
+
     std::vector<KPoint> make_m_gamma_k_m_path(int points_per_segment);
 
     BoundaryMesh get_mesh() const { return mesh; }

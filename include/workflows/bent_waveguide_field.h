@@ -1,7 +1,11 @@
 #ifndef SUBWAVELENGTHRESONATORS_WORKFLOWS_BENT_WAVEGUIDE_FIELD_H
 #define SUBWAVELENGTHRESONATORS_WORKFLOWS_BENT_WAVEGUIDE_FIELD_H
 
+#include <string>
+
 namespace workflows {
+
+struct TessellatedPatch;
 
 /* Reconstruct and save the physical field u_n(x) of one eigenmode of the bent-waveguide patch.
 
@@ -48,6 +52,18 @@ Writes:
                               double v = 1.0,
                               double v_b = 1.0,
                               double v_bd = 1.0);
+
+// Save reusable unit-source fields from an already built tessellated patch (no new solve).
+// Basis 0 excites +m at the local origin; basis 1 excites -m (only basis 0 for m=0).
+// All other disk interiors are zero for each basis. Grid entries are [y][x]; coordinates
+// stay local. NaNs mark exterior points too close to a boundary for reliable quadrature.
+// Writes prefix_patch_K_basis_S_{real,imag,mag,phase}.csv, prefix_patch_K_{axis,disks}.csv,
+// and prefix_{parameters,windows,sites}.csv. Geometry/mapping tables have header rows;
+// field grids and axes are plain numeric CSVs. The prefix's parent directory must exist.
+// The sites table maps ell to a template, global translation, and global coefficient block.
+void run_tessellated_waveguide_field(const TessellatedPatch& patch,
+                                    int grid_points = 101,
+                                    const std::string& prefix = "tessellated_waveguide");
 
 }  // namespace workflows
 

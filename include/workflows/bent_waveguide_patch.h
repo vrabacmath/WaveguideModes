@@ -92,16 +92,34 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
                            double v_b = 1.0, double v_bd = 1.0, bool verbose = true);
 
 struct TessellatedPatch {
-    int window_radius, patch_radius, colbrook;
+    int window_radius, patch_radius, colbrook, fringe;
+    bool bent;
+    // All bend-intersecting meshes are distinct; the two outer templates are straight.
+    int template_radius() const { return window_radius + fringe + 1; }
+    int template_index(int ell) const {
+        const int T = template_radius();
+        return ell < -T ? 0 : (ell > T ? 2 * T : ell + T);
+    }
     std::vector<BoundaryMesh> meshes;
 
     std::vector<std::map<std::pair<int, int>, int>> defect_indices;  // source-relative site -> disk index
-    std::vector<std::vector<int>> main_indices; // disk indices, ordered by offset d = -window_radius..window_radius
+    // All defect centers in [-window_radius, window_radius]^2, ordered along the path.
+    std::vector<std::vector<int>> main_indices;
+    // row_offsets[k][q] = target ell - source ell for main_indices[k][q].
+    // Near the bend these offsets can exceed window_radius and the row count varies.
+    std::vector<std::vector<int>> row_offsets;
+    // disks[k][i] describes mesh disk i in window k, in source-relative coordinates.
+    // The central disk is defect_indices[k].at({0,0}), not necessarily disk 0.
+    std::vector<std::vector<Disk>> disks;
 
     // Columns: ell = -patch_radius..patch_radius; rows include colbrook extra sites at each end.
     MatrixXcd bigC;
-    // Template t + window_radius excites path site t. Row blocks are offsets d from that site.
+    // Template t + template_radius() excites path site t; t=-T..T, T=window_radius+fringe+1.
+    // The endpoint meshes are purely straight. Row block q has path offset row_offsets[k][q].
     std::vector<MatrixXcd> patch_colC;
+    // Ntot x modes per window: density for unit central sources, columns +m then -m
+    // (one column for m=0), with rows in the corresponding mesh's boundary-point order.
+    std::vector<MatrixXcd> patch_X;
 
     cpxd k, kVb, kV, kVbd;  // kV: background speed, kVb: crystal interior, kVbd: defect interior
     double omega0, beta, Anorm, radius, defect_radius;
@@ -109,16 +127,20 @@ struct TessellatedPatch {
     int N, modes, m_ang;
 };
 
-// Reuse cached block columns without any boundary-integral solves. There must be 2*w+1
-// block columns, each of size (modes*(2*w+1)) x modes. Columns at the endpoints extend the
-// capacitance matrix (operator). This assumes the endpoint columns already approximate
-// the straight-arm environment.
-// colbrook >= w retains every row of the chosen stencil; smaller values crop its tails.
+// Reuse cached block columns without any boundary-integral solves. There are 2*T+1
+// templates for source labels -T..T. Template k has modes*row_offsets[k].size() rows
+// and modes columns; offsets must be strictly increasing and include the source (0).
+// Repeat the two strictly straight endpoint columns outside -T..T.
+// Place each block at global row ell + row_offsets[k][q], cropping only to the
+// requested global row range [-patch_radius-colbrook, patch_radius+colbrook].
 MatrixXcd assemble_tessellated_columns(const std::vector<MatrixXcd>& columns,
+                                     const std::vector<std::vector<int>>& row_offsets,
                                      int patch_radius, int colbrook);
 
 // Local square meshes have half-width window_radius + fringe, centered on the source disk.
-// Only path offsets -window_radius..window_radius are projected into each coupling column.
+// Build 2*(window_radius+fringe)+3 templates, including two strictly straight endpoints.
+// Project every defect with a local center in [-window_radius, window_radius]^2.
+// The surrounding fringe stays in the boundary solve but contributes no coupling rows.
 // The bend uses BentPatch::site_at; bent=false uses the straight line (ell, 0).
 TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, int colbrook, bool bent,
                                          double radius, double defect_radius, int m_ang,
