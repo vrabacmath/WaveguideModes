@@ -1444,86 +1444,183 @@ TEST(BentWaveguidePatch, EndpointDefectsAreScreenersNotMatrixSites) {
     EXPECT_LT(row_sym / row_scale, 1e-10);
 }
 
-TEST(TessellatedPatch, RepeatsEndpointColumnsAndCropsByPathOffset) {
+TEST(TessellatedPatch, AssemblesVariableSquareColumnsAndRepeatsStraightEndpoints) {
     for (int modes : {1, 2}) {
-        std::vector<MatrixXcd> columns(3, MatrixXcd(3 * modes, modes));
-        for (int t = 0; t < 3; ++t)
-            for (int r = 0; r < 3 * modes; ++r)
+        // A radius-one square retains an extra opposite-arm site on either side of the bend.
+        const std::vector<std::vector<int>> offsets{
+            {-1, 0, 1}, {-1, 0, 1, 2}, {-1, 0, 1}, {-2, -1, 0, 1}, {-1, 0, 1}};
+        std::vector<MatrixXcd> columns(5);
+        for (int t = 0; t < 5; ++t) {
+            columns[t].resize(modes * offsets[t].size(), modes);
+            for (int r = 0; r < columns[t].rows(); ++r)
                 for (int c = 0; c < modes; ++c)
                     columns[t](r, c) = cpxd(100 * (t + 1) + 10 * r + c, r - c);
+        }
 
-        // Columns -3..3 use templates -1,-1,-1,0,1,1,1.
-        const std::vector<int> templates{0, 0, 0, 1, 2, 2, 2};
+        // Columns -3..3 use straight-left twice, the three bend windows, then straight-right twice.
+        const std::vector<int> templates{0, 0, 1, 2, 3, 4, 4};
         for (int halo : {0, 1, 2}) {
-            const auto C = workflows::assemble_tessellated_columns(columns, 3, halo);
+            const auto C = workflows::assemble_tessellated_columns(columns, offsets, 3, halo);
             ASSERT_EQ(C.rows(), modes * (7 + 2 * halo));
             ASSERT_EQ(C.cols(), modes * 7);
             for (int r = 0; r < 7 + 2 * halo; ++r) {
                 for (int c = 0; c < 7; ++c) {
                     const int offset = r - halo - c;
                     const MatrixXcd block = C.block(modes * r, modes * c, modes, modes);
-                    if (std::abs(offset) <= 1)
+                    const auto& labels = offsets[templates[c]];
+                    const auto row = std::find(labels.begin(), labels.end(), offset);
+                    if (row != labels.end())
                         EXPECT_TRUE(block.isApprox(columns[templates[c]].block(
-                            modes * (offset + 1), 0, modes, modes)));
+                            modes * (row - labels.begin()), 0, modes, modes)));
                     else
                         EXPECT_EQ(block.norm(), 0.0);
                 }
             }
         }
         // With no extension, each template's d=0 block lies on the main diagonal.
-        const auto C = workflows::assemble_tessellated_columns(columns, 1, 0);
-        for (int q = 0; q < 3; ++q)
+        const auto C = workflows::assemble_tessellated_columns(columns, offsets, 1, 0);
+        for (int q = 0; q < 3; ++q) {
+            const auto& labels = offsets[q + 1];
+            const auto center = std::find(labels.begin(), labels.end(), 0) - labels.begin();
             EXPECT_TRUE(C.block(modes * q, modes * q, modes, modes).isApprox(
-                columns[q].middleRows(modes, modes)));
+                columns[q + 1].middleRows(modes * center, modes)));
+        }
     }
 }
 
 TEST(TessellatedPatch, ZeroRadiusAndInvalidTemplates) {
-    const std::vector<MatrixXcd> columns{MatrixXcd::Constant(1, 1, cpxd(2, 3))};
-    const auto C = workflows::assemble_tessellated_columns(columns, 0, 1);
+    const std::vector<MatrixXcd> columns(3, MatrixXcd::Constant(1, 1, cpxd(2, 3)));
+    const std::vector<std::vector<int>> offsets(3, std::vector<int>{0});
+    const auto C = workflows::assemble_tessellated_columns(columns, offsets, 0, 1);
     ASSERT_EQ(C.rows(), 3);
     ASSERT_EQ(C.cols(), 1);
     EXPECT_EQ(C(0, 0), cpxd(0));
     EXPECT_EQ(C(1, 0), cpxd(2, 3));
     EXPECT_EQ(C(2, 0), cpxd(0));
-    EXPECT_THROW(workflows::assemble_tessellated_columns({}, 1, 0), std::invalid_argument);
-    EXPECT_THROW(workflows::assemble_tessellated_columns(columns, 1, -1), std::invalid_argument);
+    EXPECT_THROW(workflows::assemble_tessellated_columns({}, {}, 1, 0), std::invalid_argument);
+    EXPECT_THROW(workflows::assemble_tessellated_columns(columns, offsets, 1, -1), std::invalid_argument);
+    EXPECT_THROW(workflows::assemble_tessellated_columns(columns, offsets, -1, 0), std::invalid_argument);
+    EXPECT_THROW(workflows::assemble_tessellated_columns(columns, {}, 1, 0), std::invalid_argument);
+    auto even_templates = columns;
+    even_templates.pop_back();
+    EXPECT_THROW(workflows::assemble_tessellated_columns(even_templates, offsets, 1, 0), std::invalid_argument);
     const std::vector<MatrixXcd> malformed(3, MatrixXcd::Zero(2, 1));
-    EXPECT_THROW(workflows::assemble_tessellated_columns(malformed, 1, 0), std::invalid_argument);
-    EXPECT_THROW(workflows::assemble_tessellated_columns(malformed, 0, 0), std::invalid_argument);
+    EXPECT_THROW(workflows::assemble_tessellated_columns(malformed, offsets, 1, 0), std::invalid_argument);
+    const std::vector<std::vector<int>> missing_source(3, std::vector<int>{1});
+    EXPECT_THROW(workflows::assemble_tessellated_columns(columns, missing_source, 1, 0), std::invalid_argument);
+    const std::vector<std::vector<int>> duplicate(3, std::vector<int>{0, 0});
+    EXPECT_THROW(workflows::assemble_tessellated_columns(malformed, duplicate, 1, 0), std::invalid_argument);
+    const std::vector<std::vector<int>> unordered(3, std::vector<int>{1, 0});
+    EXPECT_THROW(workflows::assemble_tessellated_columns(malformed, unordered, 1, 0), std::invalid_argument);
 }
 
 TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
     const auto tp = workflows::build_tessellated_patch(1, 3, 1, true, 0.35, 0.455, 1,
                                                        1, 8, 1.0, 1.0, 1.0, false);
-    ASSERT_EQ(tp.meshes.size(), 3u);
+    ASSERT_EQ(tp.meshes.size(), 7u);  // full mesh half-width 2, plus two straight templates
     ASSERT_EQ(tp.bigC.rows(), 18);
     ASSERT_EQ(tp.bigC.cols(), 14);
-    for (int t = -1; t <= 1; ++t) {
-        const int mesh = t + 1;
+    for (int t = -3; t <= 3; ++t) {
+        const int mesh = tp.template_index(t);
         const auto source = workflows::BentPatch::site_at(t);
-        ASSERT_EQ(tp.main_indices[mesh].size(), 3u);
+        ASSERT_EQ(tp.main_indices[mesh].size(), std::abs(t) == 1 ? 4u : 3u);
+        ASSERT_EQ(tp.row_offsets[mesh].size(), tp.main_indices[mesh].size());
+        ASSERT_EQ(tp.patch_colC[mesh].rows(), tp.modes * tp.main_indices[mesh].size());
         EXPECT_EQ(tp.meshes[mesh].get_num_meshes(), 25);
-        EXPECT_EQ(tp.main_indices[mesh][1], tp.defect_indices[mesh].at({0, 0}));
+        ASSERT_EQ(tp.disks[mesh].size(), 25u);
+        const int center_disk = tp.defect_indices[mesh].at({0, 0});
+        EXPECT_NE(center_disk, 0);
+        EXPECT_TRUE(tp.disks[mesh][center_disk].c.isZero());
+        EXPECT_DOUBLE_EQ(tp.disks[mesh][center_disk].r, tp.defect_radius);
+        for (int i = 0; i < tp.meshes[mesh].get_num_meshes(); ++i) {
+            const auto& disk = tp.disks[mesh][i];
+            const int start = tp.meshes[mesh].get_start_index(i);
+            // Disk geometry must describe the same boundary rows used by patch_X.
+            for (int j = 0; j < tp.N; ++j)
+                EXPECT_NEAR((tp.meshes[mesh].get_vertex(start + j).point - disk.c).norm(),
+                            disk.r, 1e-14);
+            const int gx = static_cast<int>(disk.c.x()) + source.first;
+            const int gy = static_cast<int>(disk.c.y()) + source.second;
+            const bool defect = (gx == 0 && gy >= 0) || (gy == 0 && gx >= 0);
+            EXPECT_DOUBLE_EQ(disk.r, defect ? tp.defect_radius : tp.radius);
+            // Every defect inside the square is projected, and every fringe disk is excluded.
+            const bool retained = std::find(tp.main_indices[mesh].begin(), tp.main_indices[mesh].end(), i)
+                                  != tp.main_indices[mesh].end();
+            EXPECT_EQ(retained, defect && std::abs(disk.c.x()) <= tp.window_radius &&
+                                         std::abs(disk.c.y()) <= tp.window_radius);
+        }
+        MatrixXcd S;
+        SpectralOperators(tp.meshes[mesh]).S(S, tp.k);
+        const MatrixXcd trace = S * tp.patch_X[mesh];
+        const int center_start = tp.meshes[mesh].get_start_index(center_disk);
+        MatrixXcd expected = MatrixXcd::Zero(S.rows(), tp.modes);
+        for (int j = 0; j < tp.N; ++j) {
+            const double theta = 2.0 * M_PI * j / tp.N;
+            expected(center_start + j, 0) = tp.Anorm * std::exp(cpxd(0, tp.m_ang * theta));
+            expected(center_start + j, 1) = tp.Anorm * std::exp(cpxd(0, -tp.m_ang * theta));
+        }
+        EXPECT_LT((trace - expected).norm() / expected.norm(), 1e-11);
         EXPECT_GT(tp.defect_indices[mesh].size(), tp.main_indices[mesh].size());
-        for (int d = -1; d <= 1; ++d) {
+        for (std::size_t q = 0; q < tp.main_indices[mesh].size(); ++q) {
+            const int d = tp.row_offsets[mesh][q];
             const auto target = workflows::BentPatch::site_at(t + d);
-            EXPECT_EQ(tp.main_indices[mesh][d + 1], tp.defect_indices[mesh].at(
+            EXPECT_EQ(tp.main_indices[mesh][q], tp.defect_indices[mesh].at(
                 {target.first - source.first, target.second - source.second}));
         }
         EXPECT_TRUE(tp.patch_colC[mesh].allFinite());
     }
+    EXPECT_EQ(tp.row_offsets[2], (std::vector<int>{-1, 0, 1, 2}));
+    EXPECT_EQ(tp.row_offsets[4], (std::vector<int>{-2, -1, 0, 1}));
+    // Opposite-arm neighbors have path distance 2 but lie inside the radius-one square.
+    // Their coupling used to be silently zeroed by the path-distance cutoff.
+    for (int source : {-1, 1}) {
+        const int target = -source;
+        const MatrixXcd coupling = tp.bigC.block(tp.modes * (target + 4), tp.modes * (source + 3),
+                                                 tp.modes, tp.modes);
+        EXPECT_GT(coupling.norm(), 1e-8);
+        const int template_id = tp.template_index(source);
+        const int slot = source < 0 ? 3 : 0;
+        EXPECT_TRUE(coupling.isApprox(tp.patch_colC[template_id].middleRows(tp.modes * slot, tp.modes)));
+    }
     // The corner template and a direct bent patch have identical geometry and projection.
     const auto direct = workflows::build_bent_patch(0.35, 0.455, 1, 2, 2, 0, 1, 8,
                                                     1.0, 1.0, 1.0, false);
-    EXPECT_TRUE(tp.patch_colC[1].isApprox(direct.C.middleCols(2, 2), 1e-11));
+    EXPECT_TRUE(tp.patch_colC[3].isApprox(direct.C.middleCols(2, 2), 1e-11));
+    EXPECT_TRUE(tp.patch_X[3].isApprox(direct.X.middleCols(2, 2), 1e-11));
+
+    // Translating either endpoint must never move an artificial bend into the global mesh.
+    // Check every disk against the actual guide, including its fringe, for repeated sources.
+    for (int ell = -6; ell <= 6; ++ell) {
+        const int mesh = tp.template_index(ell);
+        const auto source = workflows::BentPatch::site_at(ell);
+        for (const auto& disk : tp.disks[mesh]) {
+            const int gx = static_cast<int>(disk.c.x()) + source.first;
+            const int gy = static_cast<int>(disk.c.y()) + source.second;
+            const bool defect = (gx == 0 && gy >= 0) || (gy == 0 && gx >= 0);
+            EXPECT_DOUBLE_EQ(disk.r, defect ? tp.defect_radius : tp.radius)
+                << "source ell=" << ell << ", global disk (" << gx << "," << gy << ")";
+        }
+    }
+    // Path direction is -x on the incoming straight arm, +y on the outgoing arm.
+    for (int d = -1; d <= 1; ++d) {
+        EXPECT_TRUE(tp.disks[0][tp.main_indices[0][d + 1]].c.isApprox(Vector2d(-d, 0)));
+        EXPECT_TRUE(tp.disks[6][tp.main_indices[6][d + 1]].c.isApprox(Vector2d(0, d)));
+    }
 }
 
 TEST(TessellatedPatch, StraightGuideTemplatesAreTranslationInvariant) {
     const auto tp = workflows::build_tessellated_patch(1, 2, 0, false, 0.35, 0.455, 0,
                                                        0, 8, 1.0, 1.0, 1.0, false);
-    EXPECT_TRUE(tp.patch_colC[0].isApprox(tp.patch_colC[1], 1e-12));
-    EXPECT_TRUE(tp.patch_colC[2].isApprox(tp.patch_colC[1], 1e-12));
+    ASSERT_EQ(tp.meshes.size(), 5u);
+    for (int k = 0; k < 5; ++k) {
+        EXPECT_EQ(tp.row_offsets[k], (std::vector<int>{-1, 0, 1}));
+        EXPECT_TRUE(tp.patch_colC[k].isApprox(tp.patch_colC[2], 1e-12));
+        EXPECT_TRUE(tp.patch_X[k].isApprox(tp.patch_X[2], 1e-12));
+    }
+    EXPECT_FALSE(tp.bent);
+    EXPECT_EQ(tp.patch_X[1].cols(), 1);
+    EXPECT_TRUE(tp.patch_X[0].isApprox(tp.patch_X[1], 1e-12));
+    EXPECT_TRUE(tp.patch_X[2].isApprox(tp.patch_X[1], 1e-12));
 }
 
 // erfc_complex must satisfy the reflection identity erfc(z) + erfc(-z) = 2 everywhere. Before the
