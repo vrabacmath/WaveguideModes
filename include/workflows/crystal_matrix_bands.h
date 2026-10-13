@@ -21,7 +21,7 @@ namespace workflows {
 
 The same sweep is run twice:
 * SpectralOperators::CrystalA, the nodal boundary-integral crystal matrix;
-* Utils::multipole_crystal_A, the Fourier multipole crystal matrix.
+* Multipole::crystal_A, the Fourier multipole crystal matrix.
 
 The workflow is intentionally just the unperturbed crystal diagnostic: for each
 (alpha, omega) point it records sigma_min(A^alpha(omega)) and log(abs(det(A^alpha(omega)))).

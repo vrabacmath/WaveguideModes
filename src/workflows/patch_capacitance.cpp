@@ -11,17 +11,13 @@
 
 #include "Eigen/Dense"
 #include "boundary_mesh.h"
+#include "disk.h"
 #include "spectral_operators.h"
 #include "workflows/bessel_helpers.h"
 
 namespace workflows {
 
 using namespace Eigen;
-
-struct Disk {
-    double r;
-    Vector2d c;
-};
 
 void run_patch_capacitance(double radius, double defect_radius, double delta,
                            int m_ang, int n_defect, int n_clad, int fringe,

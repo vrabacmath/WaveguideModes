@@ -115,8 +115,8 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
     auto crystal_sigma_ay = [&](double omega, double alpha_x, double alpha_y) {
         MatrixXcd A;
         const cpxd w(omega, contour);
-        Utils::multipole_crystal_A(A, n_multipole, radius, w / v, w / v_b,
-                                   Vector2d(alpha_x, alpha_y), delta);
+        Multipole::crystal_A(A, n_multipole, radius, w / v, w / v_b,
+                             Vector2d(alpha_x, alpha_y), delta);
         return smallest_singular_value(A);
     };
 

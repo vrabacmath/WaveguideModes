@@ -7,6 +7,7 @@
 
 #include "Eigen/Dense"
 #include "boundary_mesh.h"
+#include "disk.h"
 #include "spectral_operators.h"
 #include "workflows/bessel_helpers.h"
 
@@ -14,10 +15,7 @@ namespace workflows {
 
 using namespace Eigen;
 
-struct Disk {
-    double r;
-    Vector2d c;
-};
+using ::Disk;
 
 /* The the exterior operators evaluated on an L-shaped defect chain in a crystal
 are shared by all workflows with a bent waveguide.
@@ -93,6 +91,7 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
 
 struct TessellatedPatch {
     int window_radius, patch_radius, colbrook, fringe;
+    int Nmultipole = 10;  // multipole truncation order for the exterior operators
     bool bent;
     // All bend-intersecting meshes are distinct; the two outer templates are straight.
     int template_radius() const { return window_radius + fringe + 1; }
@@ -145,7 +144,7 @@ MatrixXcd assemble_tessellated_columns(const std::vector<MatrixXcd>& columns,
 TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, int colbrook, bool bent,
                                          double radius, double defect_radius, int m_ang,
                                          int fringe, int points_per_disk, double v = 1.0,
-                                         double v_b = 1.0, double v_bd = 1.0, bool verbose = true);
+                                         double v_b = 1.0, double v_bd = 1.0, int Nmultipole = 10, bool verbose = true);
 
 
 } // namespace workflows

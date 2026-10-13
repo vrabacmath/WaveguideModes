@@ -3,6 +3,7 @@
 //
 
 #include "spectral_operators.h"
+#include <stdexcept>
 
 #define EPS 1e-12
 
@@ -215,6 +216,30 @@ void assemble_source_normal(MatrixXcd& K,
 }
 
 } // namespace
+
+MatrixXcd SpectralOperators::fourier_basis(int point_count, int order_cutoff, int component_count) {
+    if (point_count <= 0 || order_cutoff < 0 || component_count < 0) {
+        throw std::invalid_argument("Fourier basis needs positive point_count and nonnegative order_cutoff and component_count");
+    }
+    const int mode_count = 2 * order_cutoff + 1;
+    MatrixXcd modes(point_count, mode_count);
+    for (int point = 0; point < point_count; ++point) {
+        const double theta = 2.0 * M_PI * static_cast<double>(point) / static_cast<double>(point_count);
+        for (int col = 0; col < mode_count; ++col) {
+            const int order = col - order_cutoff;
+            modes(point, col) = std::exp(cpxd(0.0, static_cast<double>(order) * theta));
+        }
+    }
+
+    MatrixXcd basis = MatrixXcd::Zero(component_count * point_count, component_count * mode_count);
+    for (int component = 0; component < component_count; ++component) {
+        for (int mode = 0; mode < mode_count; ++mode) {
+            basis.block(component * point_count, mode * component_count + component,
+                        point_count, 1) = modes.col(mode);
+        }
+    }
+    return basis;
+}
 
 /**
  * @brief Construct a SpectralOperators object and precompute the Kress quadrature weights.

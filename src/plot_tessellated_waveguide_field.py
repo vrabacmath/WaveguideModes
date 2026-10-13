@@ -192,17 +192,18 @@ def assemble_field(sites, windows, coefficients, spacing=None, extent=None):
         finite = np.isfinite(values)
         field[block] += np.where(finite, values, 0)
         invalid[block] |= ~finite
-    field[invalid | (coverage == 0)] = complex(np.nan, np.nan)
+    # field[invalid | (coverage == 0)] = complex(np.nan, np.nan)
+    field[invalid] = complex(np.nan, np.nan)
     return x, y, field, coverage
 
 
-def plot_field(x, y, field, sites, radius, title):
+def plot_field(x, y, field, sites, radius, title, coefficients):
     import matplotlib.pyplot as plt
     from matplotlib.collections import PatchCollection
     from matplotlib.colors import LogNorm
     from matplotlib.patches import Circle
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5.5), layout="constrained")
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), layout="constrained")
     magnitude = np.abs(field)
     positive = magnitude[np.isfinite(magnitude) & (magnitude > 0)]
     if positive.size:
@@ -220,10 +221,18 @@ def plot_field(x, y, field, sites, radius, title):
     image = axes[1].pcolormesh(x, y, field.real, shading="nearest", cmap="RdBu_r",
                                vmin=-limit, vmax=limit, rasterized=True)
     fig.colorbar(image, ax=axes[1], label=r"$\mathrm{Re}\,u$")
-    for ax, label in zip(axes, ("Magnitude", "Real part")):
+    block_norms = np.linalg.norm(coefficients, axis=1)
+    disks = PatchCollection([Circle((site["x"], site["y"]), radius) for site in sites],
+                            cmap="magma", edgecolor="0.6", linewidth=0.35)
+    disks.set_array(block_norms)
+    disks.set_clim(0, max(float(block_norms.max()), 1e-15))
+    axes[2].add_collection(disks)
+    fig.colorbar(disks, ax=axes[2], label=r"$\|a_\ell\|_2$")
+    for ax, label in zip(axes, ("Magnitude", "Real part", "Eigenvector block norms")):
         # Outline the global source resonators; local cladding meshes can overlap differently.
-        circles = [Circle((site["x"], site["y"]), radius) for site in sites]
-        ax.add_collection(PatchCollection(circles, facecolor="none", edgecolor="0.6", linewidth=0.35))
+        if ax is not axes[2]:
+            circles = [Circle((site["x"], site["y"]), radius) for site in sites]
+            ax.add_collection(PatchCollection(circles, facecolor="none", edgecolor="0.6", linewidth=0.35))
         ax.set(xlabel="$x$", ylabel="$y$", title=label, aspect="equal",
                xlim=(x[0], x[-1]), ylim=(y[0], y[-1]))
     fig.suptitle(f"{title}\nSuperposition of finite window fields")
@@ -401,7 +410,8 @@ def main():
         x, y, field, coverage = assemble_field(sites, windows, coefficients, args.spacing, args.extent)
         if not np.isfinite(field).any():
             raise ValueError("No valid field samples in this extent; inspect the window masks or grid spacing")
-        fig = plot_field(x, y, field, sites, params["defect_radius"], args.eigenvector.stem)
+        fig = plot_field(x, y, field, sites, params["defect_radius"], args.eigenvector.stem,
+                         coefficients)
         output = args.output or args.eigenvector.with_name(args.eigenvector.stem + "_field")
         output.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(f"{output}.npz", x=x, y=y, u=field, coverage=coverage,

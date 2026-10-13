@@ -1,5 +1,6 @@
 #include "workflows/bent_waveguide_patch.h"
 #include "workflows/defect_capacitance_bands.h"
+#include "multipole.h"
 
 #include <algorithm>
 #include <cmath>
@@ -167,7 +168,7 @@ MatrixXcd assemble_tessellated_columns(const std::vector<MatrixXcd>& columns,
 TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, int colbrook, bool bent,
                                          double radius, double defect_radius, int m_ang,
                                          int fringe, int points_per_disk, double v, double v_b,
-                                         double v_bd, bool verbose) {
+                                         double v_bd, int Nmultipole, bool verbose) {
     if (window_radius < 0 || patch_radius < window_radius || colbrook < 0 || fringe < 0)
         throw std::invalid_argument("Require 0 <= window_radius <= patch_radius and nonnegative buffers");
     if (radius <= 0 || defect_radius <= 0 || v <= 0 || v_b <= 0 || v_bd <= 0 || m_ang < 0)
@@ -192,6 +193,11 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
     tp.k = cpxd(tp.omega0, 1e-3) / tp.kV;
     tp.Anorm = 1.0 / (std::sqrt(M_PI) * defect_radius *
                      std::sqrt(std::max(1.0 - double(m_ang * m_ang) / (tp.beta * tp.beta), 1e-12)));
+
+    tp.Nmultipole = Nmultipole;
+    if (!(tp.N > 2 * tp.Nmultipole + 1 && tp.Nmultipole >= tp.m_ang)) {
+        throw std::invalid_argument("The following must hold: N > 2*Nmultipole+1 and Nmultipole >= m_ang");
+    }
 
     const int mesh_radius = window_radius + fringe;
     const int template_radius = tp.template_radius();
@@ -225,7 +231,7 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
                 const int gx = x + source.first, gy = y + source.second;
                 const bool defect = bent ? ((gx == 0 && gy >= 0) || (gy == 0 && gx >= 0))
                                          : (gy == 0);
-                if (defect) defects[{x, y}] = patch_mesh.get_num_meshes();
+                if (defect) defects[{x, y}] = patch_mesh.get_num_meshes(); // defect index in the current mesh
                 disks.push_back({defect ? defect_radius : radius, Vector2d(x, y)});
                 BoundaryMesh disk(tp.N);
                 disk.generate_circle(disks.back().r, disks.back().c);
@@ -248,8 +254,9 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
         }
         const int window_size = static_cast<int>(main.size());
         const int center_slot = static_cast<int>(std::lower_bound(offsets.begin(), offsets.end(), 0)
-                                                 - offsets.begin());
+                                                 - offsets.begin()); // iterator difference to index
 
+        // compute the interior Neumann traces for this template, one column-block per defect resonator and mode
         const int Ntot = patch_mesh.get_num_segments();
         VectorXd sigma(Ntot);
         for (int i = 0; i < Ntot; ++i) sigma(i) = patch_mesh.get_vertex(i).sigma;
@@ -266,14 +273,16 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
             }
         }
         // Only the source at local (0,0) is excited. Its row slot varies near the bend.
-        const MatrixXcd g0 = G.middleCols(tp.modes * center_slot, tp.modes);
-        SpectralOperators ops(patch_mesh);
+        const MatrixXcd B = SpectralOperators::fourier_basis(
+                                        tp.N, tp.Nmultipole, disks.size());
+
+        const MatrixXcd g0 = B.adjoint() * G.middleCols(tp.modes * center_slot, tp.modes) / tp.N;
         MatrixXcd S, Kstar;
-        ops.S(S, tp.k);
-        ops.Kstar(Kstar, tp.k);
+        Multipole::S(S, tp.Nmultipole, tp.disks[mesh], tp.k);
+        Multipole::Kstar(Kstar, tp.Nmultipole, tp.disks[mesh], tp.k);
         const MatrixXcd X = S.partialPivLu().solve(g0);
         tp.patch_X[mesh] = X;
-        const MatrixXcd LamG = 0.5 * X + Kstar * X;
+        const MatrixXcd LamG = B * (0.5 * X + Kstar * X);
         tp.patch_colC[mesh] = -(tp.kVbd * tp.kVbd) / (2.0 * tp.omega0) *
                               (G.adjoint() * (sigma.asDiagonal() * LamG));
         if (verbose)

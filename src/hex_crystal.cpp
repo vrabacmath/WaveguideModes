@@ -1,9 +1,25 @@
 #include "hex_crystal.h"
-#include "utils.h"
+#include "multipole.h"
+#include <cassert>
 #include <stdexcept>
 
 using namespace Eigen;
 using namespace std;
+
+namespace {
+
+std::vector<Disk> make_disks(const std::vector<double>& radii,
+                             const std::vector<Vector2d>& centers) {
+    assert(radii.size() == centers.size() && "The number of radii and centers must be the same.");
+    std::vector<Disk> disks;
+    disks.reserve(radii.size());
+    for (size_t i = 0; i < radii.size(); ++i) {
+        disks.push_back({radii[i], centers[i]});
+    }
+    return disks;
+}
+
+} // namespace
 
 std::vector<KPoint> Crystal::make_m_gamma_k_m_path(int points_per_segment) {
     points_per_segment = std::max(points_per_segment, 2);
@@ -71,12 +87,13 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
     }
 
     vector<Vector3d> candidates;
+    const auto disks = make_disks(Rs, shifts);
     bool collect_candidates = true;
     auto meas_mult_A = [&](double omega, double alpha_x, double alpha_y) {
         MatrixXcd A;
         const cpxd omega_c(omega, omega_imag);
-        Utils::multipole_crystal_A(A, n_multipole, Rs, shifts, omega_c / v, omega_c / v_b,
-                                  Vector2d(alpha_x, alpha_y), a1, a2, delta);
+        Multipole::crystal_A(A, n_multipole, disks, omega_c / v, omega_c / v_b,
+                            Vector2d(alpha_x, alpha_y), a1, a2, delta);
 
         if (collect_candidates) {
             Vector3d last_3_singular_values = last_3_sv(A);
@@ -142,6 +159,7 @@ void Crystal::compute_local_bands(double omega_lo, double omega_hi, int n_omega,
         throw std::invalid_argument("Local multipole scan needs circular resonators and positive speeds");
     }
     const double max_radius = *std::max_element(Rs.begin(), Rs.end());
+    const auto disks = make_disks(Rs, shifts);
     const int n_multipole = std::max(7, static_cast<int>(std::ceil(omega_hi * max_radius / std::min(v, v_b))) + 5);
     std::ofstream out(filename);
     if (!out) throw std::runtime_error("Cannot open " + filename);
@@ -163,8 +181,8 @@ void Crystal::compute_local_bands(double omega_lo, double omega_hi, int n_omega,
                 const double w = omega_lo + (omega_hi - omega_lo) * iw / (n_omega - 1);
                 const cpxd wc(w, omega_imag);
                 MatrixXcd A;
-                Utils::multipole_crystal_A(A, n_multipole, Rs, shifts, wc / v, wc / v_b,
-                                          Vector2d(x, y), a1, a2, get_delta());
+                Multipole::crystal_A(A, n_multipole, disks, wc / v, wc / v_b,
+                                    Vector2d(x, y), a1, a2, get_delta());
                 values[static_cast<size_t>(iy) * n_omega + iw] = last_3_sv(A);
             }
         }

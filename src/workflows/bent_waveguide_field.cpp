@@ -233,7 +233,10 @@ void run_bent_waveguide_field(double radius, double defect_radius, double delta,
 void run_tessellated_waveguide_field(const TessellatedPatch& p, int grid_points,
                                     const std::string& prefix) {
     if (grid_points < 2)
-        throw std::invalid_argument("Field grid requires at least two points per axis");
+        throw std::invalid_argument("Field grid requires at least sixteen points per axis");
+    if (!(p.N > 2 * p.Nmultipole + 1 && p.Nmultipole >= p.m_ang)) {
+        throw std::invalid_argument("The following must hold: N > 2*Nmultipole+1 and Nmultipole >= m_ang");
+    }
     const int Ng = std::max(grid_points, 16);
     const int template_count = static_cast<int>(p.meshes.size());
     const double h = 2.0 * M_PI * std::max(p.radius, p.defect_radius) / double(p.N);
@@ -312,14 +315,15 @@ void run_tessellated_waveguide_field(const TessellatedPatch& p, int grid_points,
             const auto& disk = disks[i];
             geometry << i << ',' << disk.c.x() << ',' << disk.c.y() << ',' << disk.r << ','
                      << (static_cast<int>(i) == center_disk) << ',' << is_defect[i] << '\n';
-            half = std::max(half, disk.c.cwiseAbs().maxCoeff());
+            half = std::max(half, disk.c.cwiseAbs().maxCoeff()); // this should be the same as p.template_radius() but we don't want to assume it
         }
-        half += 1.0;  // Include the fringe, which also participates in the exterior solve.
+        half += p.fringe;  // Include the fringe, which also participates in the exterior solve.
         std::vector<double> axis(Ng);
         for (int i = 0; i < Ng; ++i) axis[i] = -half + 2.0 * half * double(i) / double(Ng - 1);
         save_grid(patch_prefix + "_axis.csv", {axis});
 
-        MatrixXcd weighted_X = p.patch_X[k];
+        MatrixXcd B = SpectralOperators::fourier_basis(p.N, p.Nmultipole, p.disks[k].size());
+        MatrixXcd weighted_X = B * p.patch_X[k];
         for (int j = 0; j < Ntot; ++j) weighted_X.row(j) *= mesh.get_vertex(j).sigma;
 
         auto classify = [&](const Vector2d& r) {

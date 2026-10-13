@@ -1,4 +1,5 @@
 #include "workflows/crystal_matrix_bands.h"
+#include "multipole.h"
 
 namespace workflows {
 
@@ -67,8 +68,8 @@ void run_crystal_matrix_bands(double radius,
     auto multipoleA_measure = [&](double omega, double alpha_x, double alpha_y) {
         MatrixXcd A;
         const cpxd omega_c(omega, omega_imag);
-        Utils::multipole_crystal_A(A, n_multipole, radius, omega_c / v, omega_c / v_b,
-                                   Vector2d(alpha_x, alpha_y), delta);
+        Multipole::crystal_A(A, n_multipole, radius, omega_c / v, omega_c / v_b,
+                             Vector2d(alpha_x, alpha_y), delta);
         return measure_matrix(A);
     };
 
@@ -105,8 +106,8 @@ void run_projected_bulk_bands(double radius, double delta, int n_multipole,
             for (int j = 0; j < n_alpha_y; ++j) {
                 const double alpha_y = M_PI * j / (n_alpha_y - 1);
                 MatrixXcd A;
-                Utils::multipole_crystal_A(A, n_multipole, radius, omega_c / v, omega_c / v_b,
-                                           Vector2d(alpha_x, alpha_y), delta);
+                Multipole::crystal_A(A, n_multipole, radius, omega_c / v, omega_c / v_b,
+                                     Vector2d(alpha_x, alpha_y), delta);
                 vals[j] = JacobiSVD<MatrixXcd>(A).singularValues().tail<1>()(0);
             }
             std::sort(vals.begin(), vals.end());

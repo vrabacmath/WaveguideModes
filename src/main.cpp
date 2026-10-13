@@ -47,6 +47,23 @@ using namespace Eigen;
 
 namespace {
 
+void save_singular_vector(const std::string& filename, const VectorXcd& vector,
+                          int radius, int modes, double z, double sigma) {
+    std::ofstream out;
+    out.exceptions(std::ios::failbit | std::ios::badbit);
+    out.open(filename);
+    out.precision(std::numeric_limits<double>::max_digits10);
+    out << "# z=" << z << ", sigma_min=" << sigma << '\n';
+    out << "ell,basis,real,imag\n";
+    for (int ell = -radius; ell <= radius; ++ell)
+        for (int s = 0; s < modes; ++s) {
+            const int row = (ell + radius) * modes + s;
+            out << ell << ',' << s << ',' << vector(row).real() << ',' << vector(row).imag() << '\n';
+        }
+    out.close();
+    std::cout << "[wrote] " << filename << " at z=" << z << ", sigma_min=" << sigma << '\n';
+}
+
 void print_usage(const char* prog) {
     std::cout
         << "Usage: " << prog << " <mode> [options]\n\n"
@@ -94,10 +111,13 @@ void print_usage(const char* prog) {
         << "                       predictions; draws the null-vector field. Optional: <n_defect>\n"
         << "                       <n_clad> <fringe> <points_per_disk> <m_ang> <mode_index>\n"
         << "                       <grid_points> <delta> <seed_re> <seed_im> [v] [v_b] [v_bd]\n"
-        << "  colbrook_tests      Tessellated bent-guide singular-value scans; doubles patch radius.\n"
-        << "                       Optional: <min_radius> <max_radius> <num_intervals>\n"
-        << "                       <points_per_disk> [z_min] [z_max]\n"
-        << "                       Defaults: 20 1000 5000 24 0; z_max estimated from a square section.\n"
+        << "  colbrook-tests      Tessellated bent-guide singular-value scans; radius increases by 2.\n"
+        << "  colbrook-field      Scan, save the minimum right singular vector at each radius,\n"
+        << "                       and export cached field bases for the last radius (alias: interface-modes).\n"
+        << "                       Both accept: [window_radius=4] [colbrook=4] [min_radius=12]\n"
+        << "                       [max_radius=20] [num_intervals=15000] [points_per_disk=32]\n"
+        << "                       [m_ang=2] [z_min=0] [z_max=auto] [radius=0.35] [defect_radius=0.35]\n"
+        << "                       [v=1] [v_b=1] [v_bd=0.35/0.455] [grid_points=101] [fringe=1]\n"
         << "  help, -h, --help     Show this message.\n";
 }
 
@@ -248,9 +268,9 @@ int main(int argc, char** argv) {
         const bool bent = (argc > 9) ? std::stoi(argv[9]) != 0 : true;
         const double v = (argc > 10) ? std::stod(argv[10]) : 1.0;
         const double v_b = (argc > 11) ? std::stod(argv[11]) : 1.0;
-        const double v_bd = (argc > 12) ? std::stod(argv[12]) : 1.0;
+        const double v_bd = (argc > 12) ? std::stod(argv[12]) : 0.35 / 0.455;
         const auto patch = workflows::build_tessellated_patch(window_radius, patch_radius,
-            colbrook, bent, 0.35, 0.455, m_ang, fringe, npd, v, v_b, v_bd);
+            colbrook, bent, 0.35, 0.35, m_ang, fringe, npd, v, v_b, v_bd);
         workflows::run_tessellated_waveguide_field(patch, grid_points);
         return 0;
     }
@@ -348,30 +368,40 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if (mode == "colbrook-tests") {
+    if (mode == "colbrook-tests" || mode == "colbrook-field" || mode == "interface-modes") {
+        const bool export_field = mode != "colbrook-tests";
         const int window_radius = (argc > 2) ? std::stoi(argv[2]) : 4;
         const int colbrook = (argc > 3) ? std::stoi(argv[3]) : 4;
         const int min_radius = (argc > 4) ? std::stoi(argv[4]) : 12;
         const int max_radius = (argc > 5) ? std::stoi(argv[5]) : 20;
-        const int Nz = (argc > 6) ? std::stoi(argv[6]) : 5000;
-        const int npd = (argc > 7) ? std::stoi(argv[7]) : 24;
+        const int Nz = (argc > 6) ? std::stoi(argv[6]) : 15000;
+        const int npd = (argc > 7) ? std::stoi(argv[7]) : 32;
         const int m_ang = (argc > 8) ? std::stoi(argv[8]) : 2;
         const double z_min = (argc > 9) ? std::stod(argv[9]) : 0.0;
         double z_max = (argc > 10) ? std::stod(argv[10]) : 10.0;
-        if (min_radius < window_radius || max_radius < min_radius || Nz < 1 || npd < 8 ||
-            !std::isfinite(z_min) || (argc > 7 && (!std::isfinite(z_max) || z_max <= z_min))) {
-            std::cerr << "Require 4 <= min_radius <= max_radius, num_intervals >= 1, "
-                         "points_per_disk >= 8, and a finite increasing z range.\n";
+        const double r = (argc > 11) ? std::stod(argv[11]) : 0.35;
+        const double r_def = (argc > 12) ? std::stod(argv[12]) : 0.455;
+        const double v = (argc > 13) ? std::stod(argv[13]) : 1.0;
+        const double v_b = (argc > 14) ? std::stod(argv[14]) : 1.0;
+        const double v_bd = (argc > 15) ? std::stod(argv[15]) : 1.0;//0.35 / 0.455;
+        const int grid_points = (argc > 16) ? std::stoi(argv[16]) : 801;
+        const int fringe = (argc > 17) ? std::stoi(argv[17]) : 1;
+        if (window_radius < 0 || min_radius < window_radius || max_radius < min_radius ||
+            colbrook < 0 || fringe < 0 || m_ang < 0 || Nz < 1 || npd < 8 || grid_points < 16 ||
+            !std::isfinite(z_min) || (argc > 10 && (!std::isfinite(z_max) || z_max <= z_min))) {
+            std::cerr << "Require 0 <= window_radius <= min_radius <= max_radius, nonnegative buffers "
+                         "and angular order, num_intervals >= 1, points_per_disk >= 8, "
+                         "grid_points >= 16, and a finite increasing z range.\n";
             return 1;
         }
 
         // The expensive local solves are independent of the assembled patch radius.
-        const auto p = workflows::build_tessellated_patch(window_radius, min_radius, colbrook,
-            true, 0.35, 0.455, m_ang, 1, npd, 1.0, 1.0, 1.0);
+        auto p = workflows::build_tessellated_patch(window_radius, min_radius, colbrook,
+            true, r, r_def, m_ang, fringe, npd, v, v_b, v_bd);
         if (!p.bigC.allFinite())
             throw std::runtime_error("Tessellated operator contains non-finite entries");
         const int row_offset = p.modes * colbrook;
-        if (argc <= 7) {
+        if (argc <= 10) {
             // Only use eigenvalues of the SQUARE section as a heuristic scan bound.
             // Keep all rows of bigC for the actual rectangular singular-value calculation.
             const MatrixXcd squareC = p.bigC.middleRows(row_offset, p.bigC.cols());
@@ -386,8 +416,10 @@ int main(int argc, char** argv) {
                   << Nz + 1 << " samples per radius\n";
 
         for (int M = min_radius; M <= max_radius; M+=2) {
-            const MatrixXcd C = (M == min_radius) ? p.bigC :
-                workflows::assemble_tessellated_columns(p.patch_colC, p.row_offsets, M, colbrook);
+            if (M != min_radius)
+                p.bigC = workflows::assemble_tessellated_columns(p.patch_colC, p.row_offsets, M, colbrook);
+            p.patch_radius = M;  // Keep the exported sites and coefficient indices consistent.
+            const MatrixXcd& C = p.bigC;
             // Hermiticity compares matching input/output sites; retain the extra rows for the scan.
             const MatrixXcd squareC = C.middleRows(row_offset, C.cols());
             const double hermiticity_defect = (squareC - squareC.adjoint()).norm();
@@ -402,6 +434,9 @@ int main(int argc, char** argv) {
             out_z.exceptions(std::ios::failbit | std::ios::badbit);
             out_z.open(filename);
             out_z.precision(std::numeric_limits<double>::max_digits10);
+            double best_sigma = std::numeric_limits<double>::infinity();
+            double best_z = z_min;
+            VectorXcd best_vector;
             std::cout << "Scanning radius " << M << ": " << C.rows() << " x " << C.cols() << "\n";
             for (int zi = 0; zi <= Nz; ++zi) {
                 // An indexed grid gives every radius the same samples and includes both endpoints.
@@ -411,29 +446,35 @@ int main(int argc, char** argv) {
                 if (svd.info() != Eigen::Success || !svd.singularValues().allFinite())
                     throw std::runtime_error("Singular-value scan failed at z=" + std::to_string(z));
                 out_z << z << "," << svd.singularValues().minCoeff() << "\n";
+                if (export_field && svd.singularValues().minCoeff() < best_sigma) {
+                    best_sigma = svd.singularValues().minCoeff();
+                    best_z = z;
+                    best_vector = svd.matrixV().col(svd.singularValues().size() - 1);
+                }
 
-                if (abs(z - 5.703) < 1e-3) {
+                // 5.621 quad r
+                // 5.471 quad m
+                // 1.733 dip m
+
+                if (!export_field && abs(z - 1.733) < 1e-3) {
                     // Get the last singular vector
                     VectorXcd v_z = svd.matrixV().col(svd.singularValues().size() - 1);
-                    std::ofstream out_v;
-                    out_v.exceptions(std::ios::failbit | std::ios::badbit);
                     const std::string filename_v = "bent_waveguide_singular_vector_" + std::to_string(z) + ".csv";
-                    out_v.open(filename_v);
-                    out_v.precision(std::numeric_limits<double>::max_digits10);
-                    for (int ell = -M; ell <= M; ell++) {
-                        for (int j = 0; j < p.modes; j++) {
-                            const int row = (ell + M) * p.modes + j;
-                            //ell,basis,real,imag
-                            out_v << ell << "," << j << "," << v_z(row).real() << "," << v_z(row).imag() << "\n";
-                        }
-                    }
-                    cout << "[wrote] " << filename_v << "with singular value " << svd.singularValues().minCoeff() << "\n";
+                    save_singular_vector(filename_v, v_z, M, p.modes, z, svd.singularValues().minCoeff());
                     return 0;
                 }
             }
             out_z.close();
             std::cout << "[wrote] " << filename << "\n";
+            if (export_field)
+                save_singular_vector("bent_waveguide_singular_vector_radius_" + std::to_string(M) + ".csv",
+                                     best_vector, M, p.modes, best_z, best_sigma);
             // if (M > max_radius / 2) break;
+        }
+        if (export_field) {
+            workflows::run_tessellated_waveguide_field(p, grid_points);
+            std::cout << "Plot with: python src/plot_tessellated_waveguide_field.py "
+                      << "bent_waveguide_singular_vector_radius_" << p.patch_radius << ".csv --no-show\n";
         }
         return 0;
 
@@ -519,29 +560,6 @@ int main(int argc, char** argv) {
         //     std::cout << "[wrote] " << filename << "\n";
         // }
         return 0;
-    }
-
-    if (mode == "interface-modes") {
-        const int window_radius = (argc > 2) ? std::stoi(argv[2]) : 4;
-        const int colbrook = (argc > 3) ? std::stoi(argv[3]) : 4;
-        const int min_radius = (argc > 4) ? std::stoi(argv[4]) : 12;
-        const int max_radius = (argc > 5) ? std::stoi(argv[5]) : 20;
-        const int Nz = (argc > 6) ? std::stoi(argv[6]) : 5000;
-        const int npd = (argc > 7) ? std::stoi(argv[7]) : 24;
-        const int m_ang = (argc > 8) ? std::stoi(argv[8]) : 2;
-        const double z_min = (argc > 9) ? std::stod(argv[9]) : 0.0;
-        double z_max = (argc > 10) ? std::stod(argv[10]) : 10.0;
-        const double r = (argc > 11) ? std::stod(argv[11]) : 0.35;
-        const double r_def = (argc > 12) ? std::stod(argv[12]) : 0.455;
-        const double v = (argc > 13) ? std::stod(argv[13]) : 1.0;
-        const double v_b = (argc > 14) ? std::stod(argv[14]) : 1.0;
-        const double v_bd = (argc > 15) ? std::stod(argv[15]) : 1.0;
-        if (min_radius < window_radius || max_radius < min_radius || Nz < 1 || npd < 8 ||
-            !std::isfinite(z_min) || (argc > 7 && (!std::isfinite(z_max) || z_max <= z_min))) {
-            std::cerr << "Require 4 <= min_radius <= max_radius, num_intervals >= 1, "
-                         "points_per_disk >= 8, and a finite increasing z range.\n";
-            return 1;
-        }
     }
 
     print_usage(argv[0]);

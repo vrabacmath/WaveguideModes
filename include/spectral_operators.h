@@ -25,6 +25,18 @@ class SpectralOperators {
     public:
         SpectralOperators(BoundaryMesh mesh);
 
+        /**
+         * Fourier synthesis matrix for equally spaced angular samples on each component.
+         * Shape: (point_count * component_count) x ((2 * order_cutoff + 1) * component_count).
+         * Rows: component * point_count + point. Columns: (mode + order_cutoff) * component_count + component.
+         * Modes run from -order_cutoff to +order_cutoff, matching Multipole's ordering.
+         * Samples are at theta = 2*pi*point/point_count, with entries exp(i*mode*theta).
+         * For B = fourier_basis(...), nodal values = B * coefficients, and the unweighted
+         * Fourier projection of a nodal operator A is B.adjoint() * A * B / point_count.
+         * With point_count >= 2*order_cutoff+1, B.adjoint()*B / point_count is the identity.
+         */
+        static MatrixXcd fourier_basis(int point_count, int order_cutoff, int component_count = 1);
+
         void S_diagonal(MatrixXcd& S, cpxd k) const;
         void S(MatrixXcd& S, cpxd k) const;
         void Kstar_diagonal(MatrixXcd& Kstar, cpxd k) const;
