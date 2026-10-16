@@ -139,6 +139,7 @@ add_library(waveguide_core STATIC
     src/workflows/patch_capacitance.cpp
     src/workflows/bent_waveguide.cpp
     src/workflows/bent_waveguide_patch.cpp
+    src/workflows/colbrook_convergence.cpp
     src/workflows/bent_waveguide_field.cpp
     src/workflows/bent_waveguide_exact.cpp
     src/hex_crystal.cpp

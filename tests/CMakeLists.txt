@@ -15,6 +15,7 @@ FetchContent_MakeAvailable(googletest)
 # Create test executable
 add_executable(UnitTests
     tests.cxx
+    colbrook_convergence.cxx
 )
 
 # Link against Google Test and the core library

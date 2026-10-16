@@ -190,7 +190,7 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
     tp.kVbd = v_bd;
     tp.beta = first_neumann_zero(m_ang);
     tp.omega0 = v_bd * tp.beta / defect_radius;
-    tp.k = cpxd(tp.omega0, 1e-3) / tp.kV;
+    tp.k = cpxd(tp.omega0, 0) / tp.kV;
     tp.Anorm = 1.0 / (std::sqrt(M_PI) * defect_radius *
                      std::sqrt(std::max(1.0 - double(m_ang * m_ang) / (tp.beta * tp.beta), 1e-12)));
 

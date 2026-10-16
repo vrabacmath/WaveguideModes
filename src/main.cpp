@@ -26,6 +26,7 @@
 #include "workflows/bent_waveguide_field.h"
 #include "workflows/bent_waveguide_exact.h"
 #include "workflows/bent_waveguide_patch.h"
+#include "workflows/colbrook_convergence.h"
 #include "workflows/dirac_bands.h"
 #include "hex_crystal.h"
 
@@ -38,6 +39,7 @@
 #include <limits>
 #include <numeric>
 #include <stdexcept>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -46,6 +48,103 @@
 using namespace Eigen;
 
 namespace {
+
+std::vector<int> convergence_radii(const std::string& text) {
+    std::vector<int> values;
+    std::istringstream stream(text);
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        std::size_t used = 0;
+        const int value = std::stoi(token, &used);
+        if (used != token.size() || value < 1)
+            throw std::invalid_argument("Radii must be positive comma-separated integers");
+        values.push_back(value);
+    }
+    if (values.empty() || text.back() == ',')
+        throw std::invalid_argument("Radius lists must not be empty or end with a comma");
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+    return values;
+}
+
+int run_colbrook_convergence(int argc, char** argv) {
+    // Add/change cases here. Material contrast keeps equal radii; size contrast keeps equal speeds.
+    struct Case { const char* name; int m_ang; double defect_radius, v_bd, target; };
+    const std::vector<Case> cases{
+        {"material_dipole",     1, 0.35, 0.35 / 0.455, 1.75},
+        {"material_quadrupole", 2, 0.35, 0.35 / 0.455, 5.47},
+        {"size_dipole",         1, 0.455, 1.0, 3.60},
+        {"size_quadrupole",     2, 0.455, 1.0, 5.64},
+    };
+    const std::string selection = argc > 2 ? argv[2] : "all";
+    const auto Ns = convergence_radii(argc > 3 ? argv[3] : "8,12,16,20,30,40,50,60,70,80,90,100");
+    const auto Ws = convergence_radii(argc > 4 ? argv[4] : "1,2,3,4,5,6");
+    const int npd = argc > 5 ? std::stoi(argv[5]) : 32;
+    const int intervals = argc > 6 ? std::stoi(argv[6]) : 100;
+    const int passes = argc > 7 ? std::stoi(argv[7]) : 3;
+    const double half_width = argc > 8 ? std::stod(argv[8]) : 0.2;
+    const int multipole_order = argc > 9 ? std::stoi(argv[9]) : 10;
+    if (argc > 10 || Ns.front() < Ws.back() || npd < 8 || multipole_order < 2 ||
+        multipole_order > (npd - 2) / 2 || intervals < 4 || passes < 1 ||
+        !std::isfinite(half_width) || half_width <= 0)
+        throw std::invalid_argument("Require min(N) >= max(W), points_per_disk >= 8 and > 2*order+1, "
+                                    "multipole_order >= 2, intervals >= 4, passes >= 1, half_width > 0");
+    if (selection != "all" && std::none_of(cases.begin(), cases.end(),
+                                          [&](const Case& c) { return selection == c.name; }))
+        throw std::invalid_argument("Unknown case: use all, material_dipole, material_quadrupole, "
+                                    "size_dipole, or size_quadrupole");
+
+    const int fixed_N = Ns.back(), fixed_W = Ws.back();
+    for (const auto& c : cases) {
+        if (selection != "all" && selection != c.name) continue;
+        const std::string filename = "colbrook_convergence_" + std::string(c.name) + ".csv";
+        std::ofstream out;
+        out.exceptions(std::ios::failbit | std::ios::badbit);
+        out.open(filename);
+        out.precision(std::numeric_limits<double>::max_digits10);
+        out << "case,sweep,N,W,N_colbrook,fringe,m_ang,radius,defect_radius,v,v_b,v_bd,"
+               "points_per_disk,multipole_order,target_z,search_lo,search_hi,intervals,passes,"
+               "z_min,sigma_min,z_resolution,at_boundary\n";
+        auto save = [&](const char* sweep, int N, int W, const workflows::ColbrookMinimum& result) {
+            out << c.name << ',' << sweep << ',' << N << ',' << W << ',' << W << ",1,"
+                << c.m_ang << ",0.35," << c.defect_radius << ",1,1," << c.v_bd << ','
+                << npd << ',' << multipole_order << ',' << c.target << ','
+                << c.target - half_width << ',' << c.target + half_width << ','
+                << intervals << ',' << passes << ',' << result.z << ',' << result.sigma_min
+                << ',' << result.z_resolution << ',' << result.at_boundary << '\n';
+            out.flush(); // Preserve completed points during long window sweeps.
+            std::cout << c.name << " sweep=" << sweep << " N=" << N << " W=" << W
+                      << " z=" << result.z << " sigma_min=" << result.sigma_min
+                      << " dz=" << result.z_resolution
+                      << (result.at_boundary ? " [search boundary: widen interval]" : "") << std::endl;
+        };
+
+        // One set of local solves per W and case. The largest W also supplies the N sweep.
+        for (int W : Ws) {
+            std::cout << "Building " << c.name << " templates: W=" << W << std::endl;
+            const auto patch = workflows::build_tessellated_patch(W, fixed_N, W, true,
+                0.35, c.defect_radius, c.m_ang, 1, npd, 1.0, 1.0, c.v_bd, multipole_order, false);
+            const auto result = workflows::find_colbrook_minimum(patch.bigC, patch.modes * W,
+                c.target, half_width, intervals, passes);
+            save("W", fixed_N, W, result);
+            if (W == fixed_W) {
+                for (int N : Ns) {
+                    if (N == fixed_N) {
+                        save("N", N, W, result); // Same point belongs to both sweeps.
+                    } else {
+                        const auto C = workflows::assemble_tessellated_columns(
+                            patch.patch_colC, patch.row_offsets, N, W);
+                        save("N", N, W, workflows::find_colbrook_minimum(C, patch.modes * W,
+                            c.target, half_width, intervals, passes));
+                    }
+                }
+            }
+        }
+        out.close();
+        std::cout << "[wrote] " << filename << std::endl;
+    }
+    return 0;
+}
 
 void save_singular_vector(const std::string& filename, const VectorXcd& vector,
                           int radius, int modes, double z, double sigma) {
@@ -118,6 +217,11 @@ void print_usage(const char* prog) {
         << "                       [max_radius=20] [num_intervals=15000] [points_per_disk=32]\n"
         << "                       [m_ang=2] [z_min=0] [z_max=auto] [radius=0.35] [defect_radius=0.35]\n"
         << "                       [v=1] [v_b=1] [v_bd=0.35/0.455] [grid_points=101] [fringe=1]\n"
+        << "  colbrook-convergence Track a local minimum for all four size/material mode cases.\n"
+        << "                       Optional: [case=all] [N_list=8,12,16,20,30,40] [W_list=1,2,3,4,5,6]\n"
+        << "                       [points_per_disk=32] [intervals=100] [passes=3] [half_width=0.2]\n"
+        << "                       [multipole_order=10]. N_colbrook=W, fringe=1.\n"
+        << "                       Cases: material_dipole, material_quadrupole, size_dipole, size_quadrupole.\n"
         << "  help, -h, --help     Show this message.\n";
 }
 
@@ -125,6 +229,15 @@ void print_usage(const char* prog) {
 
 int main(int argc, char** argv) {
     const std::string mode = (argc > 1) ? argv[1] : "help";
+
+    if (mode == "colbrook-convergence") {
+        try {
+            return run_colbrook_convergence(argc, argv);
+        } catch (const std::exception& error) {
+            std::cerr << "colbrook-convergence: " << error.what() << '\n';
+            return 1;
+        }
+    }
 
     // reference method
     if (mode == "line-defect-neumann") {
@@ -380,10 +493,10 @@ int main(int argc, char** argv) {
         const double z_min = (argc > 9) ? std::stod(argv[9]) : 0.0;
         double z_max = (argc > 10) ? std::stod(argv[10]) : 10.0;
         const double r = (argc > 11) ? std::stod(argv[11]) : 0.35;
-        const double r_def = (argc > 12) ? std::stod(argv[12]) : 0.455;
+        const double r_def = (argc > 12) ? std::stod(argv[12]) : 0.35; //0.455;
         const double v = (argc > 13) ? std::stod(argv[13]) : 1.0;
         const double v_b = (argc > 14) ? std::stod(argv[14]) : 1.0;
-        const double v_bd = (argc > 15) ? std::stod(argv[15]) : 1.0;//0.35 / 0.455;
+        const double v_bd = (argc > 15) ? std::stod(argv[15]) : 0.35 / 0.455;
         const int grid_points = (argc > 16) ? std::stoi(argv[16]) : 801;
         const int fringe = (argc > 17) ? std::stoi(argv[17]) : 1;
         if (window_radius < 0 || min_radius < window_radius || max_radius < min_radius ||

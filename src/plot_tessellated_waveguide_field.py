@@ -199,11 +199,22 @@ def assemble_field(sites, windows, coefficients, spacing=None, extent=None):
 
 def plot_field(x, y, field, sites, radius, title, coefficients):
     import matplotlib.pyplot as plt
+    plt.rcParams.update(
+        {
+            "font.size": 14,
+            "axes.labelsize": 14,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "legend.fontsize": 14,
+            "mathtext.fontset": "cm",
+            "axes.linewidth": 1.2,
+        }
+    )
     from matplotlib.collections import PatchCollection
     from matplotlib.colors import LogNorm
     from matplotlib.patches import Circle
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), layout="constrained")
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5.5), layout="constrained")
     magnitude = np.abs(field)
     positive = magnitude[np.isfinite(magnitude) & (magnitude > 0)]
     if positive.size:
@@ -215,27 +226,27 @@ def plot_field(x, y, field, sites, radius, title, coefficients):
     else:
         image = axes[0].pcolormesh(x, y, magnitude, shading="nearest", cmap="magma",
                                    vmin=0, vmax=1, rasterized=True)
-    fig.colorbar(image, ax=axes[0], label=r"$|u|$")
+    fig.colorbar(image, ax=axes[0], fraction=0.05, pad=0.05)#, label=r"$|u|$")
     finite = field.real[np.isfinite(field)]
     limit = max(float(np.max(np.abs(finite))), 1e-15)
     image = axes[1].pcolormesh(x, y, field.real, shading="nearest", cmap="RdBu_r",
                                vmin=-limit, vmax=limit, rasterized=True)
-    fig.colorbar(image, ax=axes[1], label=r"$\mathrm{Re}\,u$")
-    block_norms = np.linalg.norm(coefficients, axis=1)
-    disks = PatchCollection([Circle((site["x"], site["y"]), radius) for site in sites],
-                            cmap="magma", edgecolor="0.6", linewidth=0.35)
-    disks.set_array(block_norms)
-    disks.set_clim(0, max(float(block_norms.max()), 1e-15))
-    axes[2].add_collection(disks)
-    fig.colorbar(disks, ax=axes[2], label=r"$\|a_\ell\|_2$")
-    for ax, label in zip(axes, ("Magnitude", "Real part", "Eigenvector block norms")):
+    fig.colorbar(image, ax=axes[1], fraction=0.05, pad=0.05)#, label=r"$\mathrm{Re}\,u$")
+    # block_norms = np.linalg.norm(coefficients, axis=1)
+    # disks = PatchCollection([Circle((site["x"], site["y"]), radius) for site in sites],
+    #                         cmap="magma", edgecolor="0.6", linewidth=0.35)
+    # disks.set_array(block_norms)
+    # disks.set_clim(0, max(float(block_norms.max()), 1e-15))
+    # axes[2].add_collection(disks)
+    # fig.colorbar(disks, ax=axes[2], label=r"$\|a_\ell\|_2$")
+    for ax, label in zip(axes, (r"$|u|$", r"$\mathrm{Re}\,u$")):#, "Eigenvector block norms")):
         # Outline the global source resonators; local cladding meshes can overlap differently.
-        if ax is not axes[2]:
-            circles = [Circle((site["x"], site["y"]), radius) for site in sites]
-            ax.add_collection(PatchCollection(circles, facecolor="none", edgecolor="0.6", linewidth=0.35))
+        # if ax is not axes[2]:
+        circles = [Circle((site["x"], site["y"]), radius) for site in sites]
+        ax.add_collection(PatchCollection(circles, facecolor="none", edgecolor="0.6", linewidth=0.35))
         ax.set(xlabel="$x$", ylabel="$y$", title=label, aspect="equal",
                xlim=(x[0], x[-1]), ylim=(y[0], y[-1]))
-    fig.suptitle(f"{title}\nSuperposition of finite window fields")
+    # fig.suptitle(f"{title}\nSuperposition of finite window fields")
     return fig
 
 
