@@ -116,8 +116,9 @@ struct TessellatedPatch {
     // Template t + template_radius() excites path site t; t=-T..T, T=window_radius+fringe+1.
     // The endpoint meshes are purely straight. Row block q has path offset row_offsets[k][q].
     std::vector<MatrixXcd> patch_colC;
-    // Ntot x modes per window: density for unit central sources, columns +m then -m
-    // (one column for m=0), with rows in the corresponding mesh's boundary-point order.
+    // ((2*Nmultipole+1)*disk_count) x modes per window: Fourier density coefficients
+    // for unit central sources, columns +m then -m (one column for m=0).
+    // Rows use mode-major ordering; fourier_basis(...) * patch_X gives nodal densities.
     std::vector<MatrixXcd> patch_X;
 
     cpxd k, kVb, kV, kVbd;  // kV: background speed, kVb: crystal interior, kVbd: defect interior

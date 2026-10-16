@@ -1527,7 +1527,7 @@ TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
         for (int i = 0; i < tp.meshes[mesh].get_num_meshes(); ++i) {
             const auto& disk = tp.disks[mesh][i];
             const int start = tp.meshes[mesh].get_start_index(i);
-            // Disk geometry must describe the same boundary rows used by patch_X.
+            // Disk geometry must describe the boundary samples reconstructed from patch_X.
             for (int j = 0; j < tp.N; ++j)
                 EXPECT_NEAR((tp.meshes[mesh].get_vertex(start + j).point - disk.c).norm(),
                             disk.r, 1e-14);
@@ -1546,7 +1546,7 @@ TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
 
         MatrixXcd S;
         SpectralOperators(tp.meshes[mesh]).S(S, tp.k);
-        const MatrixXcd trace = S * B * tp.patch_X[mesh];
+        const MatrixXcd trace = S * (B * tp.patch_X[mesh]);
         const int center_start = tp.meshes[mesh].get_start_index(center_disk);
         MatrixXcd expected = MatrixXcd::Zero(S.rows(), tp.modes);
         for (int j = 0; j < tp.N; ++j) {
@@ -1577,12 +1577,28 @@ TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
         const int slot = source < 0 ? 3 : 0;
         EXPECT_TRUE(coupling.isApprox(tp.patch_colC[template_id].middleRows(tp.modes * slot, tp.modes)));
     }
-    // The corner template and a direct bent patch have identical geometry and projection.
-    const auto direct = workflows::build_bent_patch(0.35, 0.455, 1, 2, 2, 0, 1, 8,
+    // Use the same boundary sampling for the modal density reconstruction and nodal reference.
+    // The two discretizations agree up to quadrature and Fourier truncation errors.
+    const auto direct = workflows::build_bent_patch(0.35, 0.455, 1, 2, 2, 0, 1, tp.N,
                                                     1.0, 1.0, 1.0, false);
-    const MatrixXcd B = SpectralOperators::fourier_basis(tp.N, tp.Nmultipole, direct.disks.size());
-    // EXPECT_TRUE(tp.patch_colC[3].isApprox(direct.C.middleCols(2, 2), 1e-5));
-    // EXPECT_TRUE((B * tp.patch_X[3]).isApprox(direct.X.middleCols(2, 2), 1e-5));
+    const int corner = tp.template_index(0);
+    const MatrixXcd B = SpectralOperators::fourier_basis(direct.N, tp.Nmultipole, direct.disks.size());
+    const MatrixXcd nodal_X = B * tp.patch_X[corner];
+    // build_bent_patch adds imaginary damping to k; compare both discretizations at tp.k.
+    SpectralOperators reference_ops(direct.mesh);
+    MatrixXcd reference_S, reference_Kstar;
+    reference_ops.S(reference_S, tp.k);
+    reference_ops.Kstar(reference_Kstar, tp.k);
+    const MatrixXcd reference_X = reference_S.partialPivLu().solve(
+        direct.G.middleCols(direct.modes * direct.center, direct.modes));
+    const MatrixXcd reference_C = -(direct.kVbd * direct.kVbd) / (2.0 * direct.omega0) *
+        direct.G.adjoint() * direct.sigma.asDiagonal() * (0.5 * reference_X + reference_Kstar * reference_X);
+    ASSERT_EQ(nodal_X.rows(), reference_X.rows());
+    ASSERT_EQ(nodal_X.cols(), reference_X.cols());
+    ASSERT_EQ(tp.patch_colC[corner].rows(), reference_C.rows());
+    ASSERT_EQ(tp.patch_colC[corner].cols(), reference_C.cols());
+    EXPECT_LT((tp.patch_colC[corner] - reference_C).norm() / reference_C.norm(), 1e-5);
+    EXPECT_LT((nodal_X - reference_X).norm() / reference_X.norm(), 1e-5);
 
     // Translating either endpoint must never move an artificial bend into the global mesh.
     // Check every disk against the actual guide, including its fringe, for repeated sources.
@@ -1606,7 +1622,7 @@ TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
 
 TEST(TessellatedPatch, StraightGuideTemplatesAreTranslationInvariant) {
     const auto tp = workflows::build_tessellated_patch(1, 2, 0, false, 0.35, 0.455, 0,
-                                                       0, 8, 1.0, 1.0, 1.0, false);
+                                                       0, 32, 1.0, 1.0, 1.0, 10, false);
     const MatrixXcd B = SpectralOperators::fourier_basis(tp.N, tp.Nmultipole, tp.disks[0].size());
     ASSERT_EQ(tp.meshes.size(), 5u);
     for (int k = 0; k < 5; ++k) {

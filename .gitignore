@@ -13,7 +13,10 @@ build-debug/
 # Generated outputs (workflows write these to the repo root)
 /*.csv
 /*.pdf
+/*.png
+/*.svg
 /dip*/
 /quad*/
 
 /papers/
+/figures/
