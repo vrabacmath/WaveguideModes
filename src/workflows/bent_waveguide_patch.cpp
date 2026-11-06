@@ -14,16 +14,18 @@ namespace workflows {
 
 using namespace Eigen;
 
-BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n_defect,
+BentPatch build_bent_patch(double radius, double defect_radius, int nm, int n_defect,
                            int n_clad, int colbrook, int fringe, int points_per_disk, double v, double v_b,
                            double v_bd, bool verbose) {
+    const int m_ang = decode_nm(nm).m_ang;
     if (n_defect < 1 || n_clad < 0 || colbrook < 0 || fringe < 0)
         throw std::invalid_argument("Bent patch requires n_defect >= 1 and nonnegative n_clad, colbrook, and fringe");
     BentPatch p;
     p.N = std::max(points_per_disk, 8);
+    p.nm = nm;
     p.m_ang = m_ang;
     p.modes = (m_ang == 0) ? 1 : 2;
-    p.beta = first_neumann_zero(m_ang);
+    p.beta = neumann_zero(nm);
     p.radius = radius;
     p.defect_radius = defect_radius;
     p.kV = v;
@@ -83,7 +85,7 @@ BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n
     const int n_def = static_cast<int>(p.defect_index.size());  // = 2 L + 1
     if (verbose)
         std::cout << "Patch capacitance (finite, centered): R=" << radius << ", R_def="
-                  << defect_radius << ", m=" << m_ang << ", omega_0=" << p.omega0 << ", "
+                  << defect_radius << ", nm=" << nm << ", omega_0=" << p.omega0 << ", "
                   << p.disks.size() << " disks (" << n_def << " defect + "
                   << (p.disks.size() - static_cast<std::size_t>(n_def)) << " cladding), "
                   << p.Ntot << " boundary points\n";
@@ -166,9 +168,10 @@ MatrixXcd assemble_tessellated_columns(const std::vector<MatrixXcd>& columns,
 }
 
 TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, int colbrook, bool bent,
-                                         double radius, double defect_radius, int m_ang,
+                                         double radius, double defect_radius, int nm,
                                          int fringe, int points_per_disk, double v, double v_b,
                                          double v_bd, int Nmultipole, bool verbose) {
+    const int m_ang = decode_nm(nm).m_ang;
     if (window_radius < 0 || patch_radius < window_radius || colbrook < 0 || fringe < 0)
         throw std::invalid_argument("Require 0 <= window_radius <= patch_radius and nonnegative buffers");
     if (radius <= 0 || defect_radius <= 0 || v <= 0 || v_b <= 0 || v_bd <= 0 || m_ang < 0)
@@ -181,6 +184,7 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
     tp.fringe = fringe;
     tp.bent = bent;
     tp.N = std::max(points_per_disk, 8);
+    tp.nm = nm;
     tp.m_ang = m_ang;
     tp.modes = (m_ang == 0) ? 1 : 2;
     tp.radius = radius;
@@ -188,7 +192,7 @@ TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, in
     tp.kV = v;
     tp.kVb = v_b;
     tp.kVbd = v_bd;
-    tp.beta = first_neumann_zero(m_ang);
+    tp.beta = neumann_zero(nm);
     tp.omega0 = v_bd * tp.beta / defect_radius;
     tp.k = cpxd(tp.omega0, 0) / tp.kV;
     tp.Anorm = 1.0 / (std::sqrt(M_PI) * defect_radius *

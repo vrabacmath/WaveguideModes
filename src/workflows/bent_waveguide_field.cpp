@@ -34,12 +34,13 @@ struct Location {
 
 }  // namespace
 
-void run_bent_waveguide_field(double radius, double defect_radius, double delta, int m_ang,
+void run_bent_waveguide_field(double radius, double defect_radius, double delta, int nm,
                               int n_defect, int n_clad, int fringe, int points_per_disk,
                               int mode_index, int grid_points, double v, double v_b,
                               double v_bd) {
-    const BentPatch p = build_bent_patch(radius, defect_radius, m_ang, n_defect, n_clad,
+    const BentPatch p = build_bent_patch(radius, defect_radius, nm, n_defect, n_clad,
                                          0, fringe, points_per_disk, v, v_b, v_bd);
+    const int m_ang = p.m_ang;
     const int modes = p.modes;
     const int n_main = static_cast<int>(p.main_indices.size());
 
@@ -266,10 +267,10 @@ void run_tessellated_waveguide_field(const TessellatedPatch& p, int grid_points,
     };
 
     auto parameters = open_csv(prefix + "_parameters.csv");
-    parameters << "window_radius,patch_radius,colbrook,bent,m_ang,modes,points_per_disk,grid_points,"
+    parameters << "window_radius,patch_radius,colbrook,bent,nm,n_rad,m_ang,modes,points_per_disk,grid_points,"
                   "radius,defect_radius,omega0,k_real,k_imag,beta,Anorm,fringe,template_radius,template_count\n"
                << p.window_radius << ',' << p.patch_radius << ',' << p.colbrook << ',' << p.bent
-               << ',' << p.m_ang << ',' << p.modes << ',' << p.N << ',' << Ng << ',' << p.radius
+               << ',' << p.nm << ',' << p.nm / 10 << ',' << p.m_ang << ',' << p.modes << ',' << p.N << ',' << Ng << ',' << p.radius
                << ',' << p.defect_radius << ',' << p.omega0 << ',' << p.k.real() << ','
                << p.k.imag() << ',' << p.beta << ',' << p.Anorm << ',' << p.fringe << ','
                << p.template_radius() << ',' << template_count << '\n';

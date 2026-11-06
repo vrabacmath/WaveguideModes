@@ -17,9 +17,11 @@ namespace workflows {
 using namespace Eigen;
 
 void run_defect_capacitance_bands(double radius, double defect_radius, double delta,
-                                  int max_m, int n_rows, int points_per_disk, int num_alpha,
+                                  int max_nm, int n_rows, int points_per_disk, int num_alpha,
                                   double alpha_lo_frac, double alpha_hi_frac,
                                   double v, [[maybe_unused]] double v_b, double v_bd) {
+    const auto limit = decode_nm(max_nm);
+    const int max_m = limit.m_ang;
     // v_b (crystal interior speed) does not enter the leading-order capacitance: the crystal
     // disks are off-resonant at omega_0 and contribute only through the exterior operators.
     // --- line defect supercell, periodic in x (period 1) ---------------------------------
@@ -51,7 +53,7 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
     for (int i = 0; i < Ntot; ++i) sigma(i) = mesh.get_vertex(i).sigma;
 
     std::cout << "Capacitance-matrix line-defect bands (BIE / DtN, supercell): R=" << radius
-              << ", R_def=" << defect_radius << ", m=0.." << max_m << ", delta=" << delta
+              << ", R_def=" << defect_radius << ", nm=" << 10 * limit.n_rad << ".." << max_nm << ", delta=" << delta
               << ", " << nd << " disks (" << n_rows << " crystal rows each side)\n";
 
     // One family per angular order m = 0..max_m, each with its own interior Neumann base
@@ -62,15 +64,16 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
     // on the crystal disks; the crystal enters only through the exterior operators.
     // L^2(D)-normalization: A = 1/sqrt(pi R_def^2 (1 - m^2/beta^2)), beta = j'_{m,1}.
     struct ModeFamily {
-        int m;          // angular order
+        int nm;          // encoded radial/angular mode
         double omega0;  // interior Neumann base frequency of the defect disk
         int modes;      // multiplicity (size of C^reg)
         MatrixXcd G;    // eigenmode traces on the supercell boundary
     };
     std::vector<ModeFamily> families;
     for (int m_ang = 0; m_ang <= max_m; ++m_ang) {
-        const double beta = first_neumann_zero(m_ang);
-        ModeFamily fam{m_ang, v_bd * beta / defect_radius, (m_ang == 0) ? 1 : 2,
+        const int nm = 10 * limit.n_rad + m_ang;
+        const double beta = neumann_zero(nm);
+        ModeFamily fam{nm, v_bd * beta / defect_radius, (m_ang == 0) ? 1 : 2,
                        MatrixXcd::Zero(Ntot, (m_ang == 0) ? 1 : 2)};
         const double Anorm =
             1.0 / (std::sqrt(M_PI) * defect_radius
@@ -81,7 +84,7 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
                 fam.G(s0 + loc, sgn) = Anorm * std::exp(cpxd(0, 1.0) * ((sgn == 0) ? 1.0 : -1.0)
                                                         * double(m_ang) * 2. * M_PI / double(N) * double(loc));
         families.push_back(std::move(fam));
-        std::cout << "   m=" << m_ang << ": omega_0=" << families.back().omega0
+        std::cout << "   nm=" << nm << ": omega_0=" << families.back().omega0
                   << " (= v_bd * " << beta << "/R_def), multiplicity " << families.back().modes << "\n";
     }
 
@@ -128,14 +131,14 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
 
             for (int j = 0; j < modes; ++j) {
                 const cpxd omega = omega0 + delta * lam(j);  // leading order: Thm 4.3, eq (4.12)
-                out_lo << fam.m << "," << alpha << "," << omega.real() << "," << omega.imag()
+                out_lo << fam.nm << "," << alpha << "," << omega.real() << "," << omega.imag()
                        << "," << lam(j).real() << "," << lam(j).imag() << "," << herm << "\n";
-                cout << "    m=" << fam.m << " leading-order seed: omega=" << omega
+                cout << "    nm=" << fam.nm << " leading-order seed: omega=" << omega
                           << " lambda=" << lam(j) << " herm=" << herm << "\n";
             }
 
             // header
-            out_cap << "alpha,fi";
+            out_cap << "alpha,nm";
             for (int i = 0; i < modes; ++i) {
                 for (int j = 0; j < modes; ++j) {
                     out_cap << ",C_" << i << "_" << j << "_re";
@@ -145,7 +148,7 @@ void run_defect_capacitance_bands(double radius, double defect_radius, double de
             out_cap << "\n";
 
             // inside alpha loop
-            out_cap << alpha << "," << fi;
+            out_cap << alpha << "," << fam.nm;
             for (int i = 0; i < modes; ++i) {
                 for (int j = 0; j < modes; ++j) {
                     auto z = Creg(i, j);

@@ -104,12 +104,13 @@ Result clamped_muller(F&& f, cpxd seed, double delta) {
 
 }  // namespace
 
-void run_bent_waveguide_exact(double radius, double defect_radius, double delta, int m_ang,
+void run_bent_waveguide_exact(double radius, double defect_radius, double delta, int nm,
                               int n_defect, int n_clad, int fringe, int points_per_disk,
                               int mode_index, int grid_points, double seed_re, double seed_im,
                               double v, double v_b, double v_bd) {
-    const BentPatch p = build_bent_patch(radius, defect_radius, m_ang, n_defect, n_clad, 0, fringe,
+    const BentPatch p = build_bent_patch(radius, defect_radius, nm, n_defect, n_clad, 0, fringe,
                                          points_per_disk, v, v_b, v_bd, /*verbose=*/false);
+    const int m_ang = p.m_ang;
 
     // Boundary rows belonging to defect disks: these carry the defect interior wavenumber in
     // assemble_A, and identify the defect interiors in the field evaluation below.

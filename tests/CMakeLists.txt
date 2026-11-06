@@ -16,7 +16,16 @@ FetchContent_MakeAvailable(googletest)
 add_executable(UnitTests
     tests.cxx
     colbrook_convergence.cxx
+    interface_patch.cxx
+    neumann_mode.cxx
+    multipole_dtn.cxx
 )
+
+# Manual parameter sweep: keep expensive global SVD scans out of ctest.
+add_executable(MultipoleConvergenceC multipole_convergence_C.cxx)
+target_link_libraries(MultipoleConvergenceC PRIVATE waveguide_core)
+set_target_properties(MultipoleConvergenceC PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Link against Google Test and the core library
 target_link_libraries(UnitTests

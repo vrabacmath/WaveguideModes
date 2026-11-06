@@ -28,6 +28,7 @@
 #include "workflows/bent_waveguide_patch.h"
 #include "workflows/colbrook_convergence.h"
 #include "workflows/dirac_bands.h"
+#include "workflows/interface_patch.h"
 #include "hex_crystal.h"
 
 
@@ -69,12 +70,12 @@ std::vector<int> convergence_radii(const std::string& text) {
 
 int run_colbrook_convergence(int argc, char** argv) {
     // Add/change cases here. Material contrast keeps equal radii; size contrast keeps equal speeds.
-    struct Case { const char* name; int m_ang; double defect_radius, v_bd, target; };
+    struct Case { const char* name; int nm; double defect_radius, v_bd, target; };
     const std::vector<Case> cases{
-        {"material_dipole",     1, 0.35, 0.35 / 0.455, 1.75},
-        {"material_quadrupole", 2, 0.35, 0.35 / 0.455, 5.47},
-        {"size_dipole",         1, 0.455, 1.0, 3.60},
-        {"size_quadrupole",     2, 0.455, 1.0, 5.64},
+        {"material_dipole",     11, 0.35, 0.35 / 0.455, 1.75},
+        {"material_quadrupole", 12, 0.35, 0.35 / 0.455, 5.47},
+        {"size_dipole",         11, 0.455, 1.0, 3.60},
+        {"size_quadrupole",     12, 0.455, 1.0, 5.64},
     };
     const std::string selection = argc > 2 ? argv[2] : "all";
     const auto Ns = convergence_radii(argc > 3 ? argv[3] : "8,12,16,20,30,40,50,60,70,80,90,100");
@@ -102,12 +103,12 @@ int run_colbrook_convergence(int argc, char** argv) {
         out.exceptions(std::ios::failbit | std::ios::badbit);
         out.open(filename);
         out.precision(std::numeric_limits<double>::max_digits10);
-        out << "case,sweep,N,W,N_colbrook,fringe,m_ang,radius,defect_radius,v,v_b,v_bd,"
+        out << "case,sweep,N,W,N_colbrook,fringe,nm,radius,defect_radius,v,v_b,v_bd,"
                "points_per_disk,multipole_order,target_z,search_lo,search_hi,intervals,passes,"
                "z_min,sigma_min,z_resolution,at_boundary\n";
         auto save = [&](const char* sweep, int N, int W, const workflows::ColbrookMinimum& result) {
             out << c.name << ',' << sweep << ',' << N << ',' << W << ',' << W << ",1,"
-                << c.m_ang << ",0.35," << c.defect_radius << ",1,1," << c.v_bd << ','
+                << c.nm << ",0.35," << c.defect_radius << ",1,1," << c.v_bd << ','
                 << npd << ',' << multipole_order << ',' << c.target << ','
                 << c.target - half_width << ',' << c.target + half_width << ','
                 << intervals << ',' << passes << ',' << result.z << ',' << result.sigma_min
@@ -123,7 +124,7 @@ int run_colbrook_convergence(int argc, char** argv) {
         for (int W : Ws) {
             std::cout << "Building " << c.name << " templates: W=" << W << std::endl;
             const auto patch = workflows::build_tessellated_patch(W, fixed_N, W, true,
-                0.35, c.defect_radius, c.m_ang, 1, npd, 1.0, 1.0, c.v_bd, multipole_order, false);
+                0.35, c.defect_radius, c.nm, 1, npd, 1.0, 1.0, c.v_bd, multipole_order, false);
             const auto result = workflows::find_colbrook_minimum(patch.bigC, patch.modes * W,
                 c.target, half_width, intervals, passes);
             save("W", fixed_N, W, result);
@@ -147,18 +148,53 @@ int run_colbrook_convergence(int argc, char** argv) {
 }
 
 void save_singular_vector(const std::string& filename, const VectorXcd& vector,
-                          int radius, int modes, double z, double sigma) {
+                          int radius, int nm, double z, double sigma) {
+    const int modes = workflows::decode_nm(nm).m_ang == 0 ? 1 : 2;
     std::ofstream out;
     out.exceptions(std::ios::failbit | std::ios::badbit);
     out.open(filename);
     out.precision(std::numeric_limits<double>::max_digits10);
     out << "# z=" << z << ", sigma_min=" << sigma << '\n';
+    out << "# nm=" << nm << ", n_rad=" << nm / 10 << ", m_ang=" << nm % 10 << '\n';
     out << "ell,basis,real,imag\n";
     for (int ell = -radius; ell <= radius; ++ell)
         for (int s = 0; s < modes; ++s) {
             const int row = (ell + radius) * modes + s;
             out << ell << ',' << s << ',' << vector(row).real() << ',' << vector(row).imag() << '\n';
         }
+    out.close();
+    std::cout << "[wrote] " << filename << " at z=" << z << ", sigma_min=" << sigma << '\n';
+}
+
+void save_interface_singular_vector(const std::string& filename, const VectorXcd& vector,
+                                    const workflows::InterfacePatch& p, double z, double sigma) {
+    const auto layout = workflows::make_interface_layout(p);
+    if (vector.size() != layout.cols)
+        throw std::invalid_argument("Interface mode vector does not match its column layout");
+    std::ofstream out;
+    out.exceptions(std::ios::failbit | std::ios::badbit);
+    out.open(filename);
+    out.precision(std::numeric_limits<double>::max_digits10);
+    out << "# z=" << z << ", sigma_min=" << sigma << '\n';
+    out << "# nm=" << p.nm << ", n_rad=" << p.nm / 10 << ", m_ang=" << p.m_ang
+        << ", beta=" << p.beta << ", omega0=" << p.omega0 << '\n';
+    out << "# Coordinates are those of C=-V_target H V_source/(2 omega0); "
+           "multiply by source_speed when using unscaled G0 field bases.\n";
+    out << "dof,cell_x,cell_y,template_id,origin_x,origin_y,disk,basis,source_speed,real,imag\n";
+    const int R = p.window_radius + p.fringe;
+    for (const auto& [cell, start] : layout.column_start) {
+        const auto origin = workflows::interface_cell_origin(p, cell.first, cell.second);
+        const auto& disks = cell.second < 0 ? p.disks_down : p.disks_up;
+        const int t = std::clamp(R - cell.second, 0, 2 * R + 1);
+        for (std::size_t a = 0; a < disks.size(); ++a) {
+            for (int basis = 0; basis < p.modes; ++basis) {
+                const Eigen::Index j = start + p.modes * a + basis;
+                out << j << ',' << cell.first << ',' << cell.second << ',' << t << ','
+                    << origin.x() << ',' << origin.y() << ',' << a << ',' << basis << ','
+                    << disks[a].v_b << ',' << vector(j).real() << ',' << vector(j).imag() << '\n';
+            }
+        }
+    }
     out.close();
     std::cout << "[wrote] " << filename << " at z=" << z << ", sigma_min=" << sigma << '\n';
 }
@@ -171,16 +207,19 @@ void print_usage(const char* prog) {
         << "Modes:\n"
         << "  line-defect-M        Subwavelength line-defect band via the multipole operator M^eps.\n"
         << "                       Optional: <num_alpha> [n_gauss] [v] [v_b] [v_bd]\n"
-        << "  defect-capacitance   Higher-frequency line-defect bands (m = 0..max_m) via the\n"
+        << "  Mode selectors: nm=10*n+m (n>=1, m=0..9): 10 monopole, 11 dipole,\n"
+        << "                  12 quadrupole, 15 decapole, 21 second radial dipole.\n"
+        << "  Tabulated codes: 10..15, 20..25, 30..32. max_nm scans one radial branch: 12 => 10,11,12; 21 => 20,21.\n"
+        << "  defect-capacitance   Higher-frequency line-defect bands (fixed radial n, angular m = 0..max_nm%10) via the\n"
         << "                       frequency-dependent capacitance matrix + exact transmission\n"
-        << "                       solve. Optional: <max_m> <n_rows> <points_per_disk>\n"
+        << "                       solve. Optional: <max_nm> <n_rows> <points_per_disk>\n"
         << "                       <num_alpha> [alpha_lo_frac] [alpha_hi_frac] [v] [v_b] [v_bd]\n"
         << "  projected-bulk       Projected bulk spectrum over alpha_y for the line-defect\n"
         << "                       diagrams. Optional: <num_alpha_x> <n_omega> <n_alpha_y>\n"
         << "                       [omega_lo] [omega_hi] [delta] [omega_imag] [v] [v_b]\n"
         << "  line-defect-neumann  Higher-freq line-defect bands from M^eps, searched around the\n"
         << "                       defect Neumann resonances (compare to defect-capacitance).\n"
-        << "                       Optional: <max_m> <num_alpha> <n_multipole> <window_factor>\n"
+        << "                       Optional: <max_nm> <num_alpha> <n_multipole> <window_factor>\n"
         << "                       [v] [v_b] [v_bd]\n"
         << "  crystal-matrix-bands Bulk M-Gamma-X-M bands from CrystalA and multipoleA.\n"
         << "                       Optional: <points_per_segment> <n_omega> <points_per_disk> <n_multipole>\n"
@@ -192,31 +231,37 @@ void print_usage(const char* prog) {
         << "                       [delta=0.001] [v=1] [v_b=0.1]\n"
         << "  patch-capacitance    Real-space capacitance matrix of a finite, CENTERED patch of the\n"
         << "                       line defect (no Floquet). Optional: <n_defect> <n_clad>\n"
-        << "                       <points_per_disk> <m_ang> <fringe> [v] [v_b] [v_bd]\n"
+        << "                       <points_per_disk> <nm> <fringe> [v] [v_b] [v_bd]\n"
         << "  bent-waveguide       Real-space capacitance couplings of an L-shaped (90 deg bent)\n"
         << "                       defect chain in a finite patch. Optional: <n_defect> <n_clad>\n"
-        << "                       <fringe> <points_per_disk> <m_ang> [v] [v_b] [v_bd]\n"
+        << "                       <fringe> <points_per_disk> <nm> [v] [v_b] [v_bd]\n"
         << "  bent-waveguide-field Field u(r) of one eigenmode of that patch, reconstructed from\n"
         << "                       the capacitance eigenvector. Optional: <n_defect> <n_clad>\n"
-        << "                       <fringe> <points_per_disk> <m_ang> <mode_index> <grid_points>\n"
+        << "                       <fringe> <points_per_disk> <nm> <mode_index> <grid_points>\n"
         << "                       [v] [v_b] [v_bd]\n"
         << "                       mode_index < 0 picks the most corner-localized mode.\n"
         << "  tessellated-waveguide-field Save local central-source basis fields for each window.\n"
         << "                       Optional: [window_radius=2] [patch_radius=8] [colbrook=2]\n"
-        << "                       [fringe=1] [points_per_disk=32] [m_ang=1] [grid_points=101]\n"
+        << "                       [fringe=1] [points_per_disk=32] [nm=11] [grid_points=101]\n"
         << "                       [bent=1] [v=1] [v_b=1] [v_bd=1]\n"
         << "  bent-waveguide-exact Exact resonances omega* of that patch: Muller's method on the\n"
         << "                       full transmission operator A(omega), seeded by the capacitance\n"
         << "                       predictions; draws the null-vector field. Optional: <n_defect>\n"
-        << "                       <n_clad> <fringe> <points_per_disk> <m_ang> <mode_index>\n"
+        << "                       <n_clad> <fringe> <points_per_disk> <nm> <mode_index>\n"
         << "                       <grid_points> <delta> <seed_re> <seed_im> [v] [v_b] [v_bd]\n"
         << "  colbrook-tests      Tessellated bent-guide singular-value scans; radius increases by 2.\n"
         << "  colbrook-field      Scan, save the minimum right singular vector at each radius,\n"
-        << "                       and export cached field bases for the last radius (alias: interface-modes).\n"
+        << "                       and export cached field bases for the last radius.\n"
         << "                       Both accept: [window_radius=4] [colbrook=4] [min_radius=12]\n"
         << "                       [max_radius=20] [num_intervals=15000] [points_per_disk=32]\n"
-        << "                       [m_ang=2] [z_min=0] [z_max=auto] [radius=0.35] [defect_radius=0.35]\n"
+        << "                       [nm=12] [z_min=0] [z_max=auto] [radius=0.35] [defect_radius=0.35]\n"
         << "                       [v=1] [v_b=1] [v_bd=0.35/0.455] [grid_points=101] [fringe=1]\n"
+        << "  interface-modes     Reflected two-material area scan; radius increases by 2.\n"
+        << "                       [window_radius=2] [colbrook=2] [min_radius=max(window_radius,2)]\n"
+        << "                       [max_radius=min_radius+2] [num_intervals=100] [points_per_disk=32]\n"
+        << "                       [nm=12] [z_min=0] [z_max=auto] [omega0=18.411837813] [Nmultipole=ceil(omega0)+5]\n"
+        << "                       [v=1] [reserved_grid_points=801] [fringe=0] [export_best_vector=0]\n"
+        << "                       Exports 2D DOF metadata with vectors; no field-grid export yet.\n"
         << "  colbrook-convergence Track a local minimum for all four size/material mode cases.\n"
         << "                       Optional: [case=all] [N_list=8,12,16,20,30,40] [W_list=1,2,3,4,5,6]\n"
         << "                       [points_per_disk=32] [intervals=100] [passes=3] [half_width=0.2]\n"
@@ -227,7 +272,7 @@ void print_usage(const char* prog) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     const std::string mode = (argc > 1) ? argv[1] : "help";
 
     if (mode == "colbrook-convergence") {
@@ -241,27 +286,27 @@ int main(int argc, char** argv) {
 
     // reference method
     if (mode == "line-defect-neumann") {
-        // Optional argv: max_m [num_alpha] [n_multipole] [window_factor] [v] [v_b] [v_bd].
+        // Optional argv: max_nm [num_alpha] [n_multipole] [window_factor] [v] [v_b] [v_bd].
         // Same geometry as defect-capacitance.
-        const int max_m     = (argc > 2) ? std::stoi(argv[2]) : 2;
+        const int max_nm     = (argc > 2) ? std::stoi(argv[2]) : 12;
         const int num_alpha = (argc > 3) ? std::stoi(argv[3]) : 31;
         const int n_mult    = (argc > 4) ? std::stoi(argv[4]) : 0;   // 0 = auto
         const double window = (argc > 5) ? std::stod(argv[5]) : 20.0;
         const double v    = (argc > 6) ? std::stod(argv[6]) : 1.0;
         const double v_b  = (argc > 7) ? std::stod(argv[7]) : 1.0;
         const double v_bd = (argc > 8) ? std::stod(argv[8]) : 1.0;//0.35 / 0.455; //1.0;
-        workflows::run_line_defect_bands_neumann(0.35, 0.455, 0.001, max_m, window, num_alpha, 20,
+        workflows::run_line_defect_bands_neumann(0.35, 0.455, 0.001, max_nm, window, num_alpha, 20,
                                                  n_mult, 0.5, 3.6, v, v_b, v_bd);
-        // workflows::run_line_defect_bands_neumann(0.35, 0.35, 0.001, max_m, window, num_alpha, 20,
+        // workflows::run_line_defect_bands_neumann(0.35, 0.35, 0.001, max_nm, window, num_alpha, 20,
         //                                          n_mult, 0.5, 3.6, v, v_b, v_bd);
         return 0;
     }
 
     // capacitance matrix with the supercell method for a line defect
     if (mode == "defect-capacitance") {
-        // Optional argv: max_m [n_rows] [points_per_disk] [num_alpha] [alpha_lo] [alpha_hi]
+        // Optional argv: max_nm [n_rows] [points_per_disk] [num_alpha] [alpha_lo] [alpha_hi]
         //                [v] [v_b] [v_bd].
-        const int max_m  = (argc > 2) ? std::stoi(argv[2]) : 2;
+        const int max_nm  = (argc > 2) ? std::stoi(argv[2]) : 12;
         const int n_rows = (argc > 3) ? std::stoi(argv[3]) : 4;
         const int npd    = (argc > 4) ? std::stoi(argv[4]) : 64;
         const int nal    = (argc > 5) ? std::stoi(argv[5]) : 61;
@@ -270,9 +315,9 @@ int main(int argc, char** argv) {
         const double v    = (argc > 8) ? std::stod(argv[8]) : 1.0;
         const double v_b  = (argc > 9) ? std::stod(argv[9]) : 1.0;
         const double v_bd = (argc > 10) ? std::stod(argv[10]) : 1.0;//0.35 / 0.455; //1.0;
-        workflows::run_defect_capacitance_bands(0.35, 0.455, 0.001, max_m, n_rows, npd, nal,
+        workflows::run_defect_capacitance_bands(0.35, 0.455, 0.001, max_nm, n_rows, npd, nal,
                                                 alo, ahi, v, v_b, v_bd);
-        // workflows::run_defect_capacitance_bands(0.35, 0.35, 0.001, max_m, n_rows, npd, nal,
+        // workflows::run_defect_capacitance_bands(0.35, 0.35, 0.001, max_nm, n_rows, npd, nal,
         //                                         alo, ahi, v, v_b, v_bd);
         return 0;
     }
@@ -313,58 +358,58 @@ int main(int argc, char** argv) {
 
     // finite patch capacitance method for a line defect
     if (mode == "patch-capacitance") {
-        // Optional argv: n_defect [n_clad] [points_per_disk] [m_ang] [fringe] [v] [v_b] [v_bd].
+        // Optional argv: n_defect [n_clad] [points_per_disk] [nm] [fringe] [v] [v_b] [v_bd].
         const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 5;
         const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 4;
         const int npd      = (argc > 4) ? std::stoi(argv[4]) : 64;
-        const int m_ang    = (argc > 5) ? std::stoi(argv[5]) : 1;
+        const int nm    = (argc > 5) ? std::stoi(argv[5]) : 11;
         const int fringe   = (argc > 6) ? std::stoi(argv[6]) : 1;
         const double v    = (argc > 7) ? std::stod(argv[7]) : 1.0;
         const double v_b  = (argc > 8) ? std::stod(argv[8]) : 1.0;
         const double v_bd = (argc > 9) ? std::stod(argv[9]) : 1.0;//0.35 / 0.455; //1.0;
-        workflows::run_patch_capacitance(0.35, 0.455, 0.001, m_ang, n_defect, n_clad, fringe, npd,
+        workflows::run_patch_capacitance(0.35, 0.455, 0.001, nm, n_defect, n_clad, fringe, npd,
                                          v, v_b, v_bd);
-        // workflows::run_patch_capacitance(0.35, 0.35, 0.001, m_ang, n_defect, n_clad, fringe, npd,
+        // workflows::run_patch_capacitance(0.35, 0.35, 0.001, nm, n_defect, n_clad, fringe, npd,
         //                                  v, v_b, v_bd);
         return 0;
     }
 
     // finite patch capacitance method for a bent waveguide (L-shaped) defect
     if (mode == "bent-waveguide") {
-        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [m_ang] [v] [v_b] [v_bd].
+        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [nm] [v] [v_b] [v_bd].
         const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 3;
         const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 3;
         const int fringe   = (argc > 4) ? std::stoi(argv[4]) : 1;
         const int npd      = (argc > 5) ? std::stoi(argv[5]) : 64;
-        const int m_ang    = (argc > 6) ? std::stoi(argv[6]) : 1;
+        const int nm    = (argc > 6) ? std::stoi(argv[6]) : 11;
         const double v    = (argc > 7) ? std::stod(argv[7]) : 1.0;
         const double v_b  = (argc > 8) ? std::stod(argv[8]) : 1.0;
         const double v_bd = (argc > 9) ? std::stod(argv[9]) : 1.0;//0.35 / 0.455; //1.0;
-        workflows::run_bent_waveguide(0.35, 0.455, 0.001, m_ang, n_defect, n_clad, fringe, npd,
+        workflows::run_bent_waveguide(0.35, 0.455, 0.001, nm, n_defect, n_clad, fringe, npd,
                                       v, v_b, v_bd);
-        // workflows::run_bent_waveguide(0.35, 0.35, 0.001, m_ang, n_defect, n_clad, fringe, npd,
+        // workflows::run_bent_waveguide(0.35, 0.35, 0.001, nm, n_defect, n_clad, fringe, npd,
         //                               v, v_b, v_bd);
         return 0;
     }
 
     // same as bent-waveguide (reuses the code), but reconstructs a chosen approximate localized eigenmode
     if (mode == "bent-waveguide-field") {
-        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [m_ang] [mode_index]
+        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [nm] [mode_index]
         //                [grid_points] [v] [v_b] [v_bd].
         const int n_defect = (argc > 2) ? std::stoi(argv[2]) : 3;
         const int n_clad   = (argc > 3) ? std::stoi(argv[3]) : 3;
         const int fringe   = (argc > 4) ? std::stoi(argv[4]) : 1;
         const int npd      = (argc > 5) ? std::stoi(argv[5]) : 64;
-        const int m_ang    = (argc > 6) ? std::stoi(argv[6]) : 1;
+        const int nm    = (argc > 6) ? std::stoi(argv[6]) : 11;
         // pick the most corner-localized mode (index < 0) or a specific mode (index >= 0)
         const int mode_idx = (argc > 7) ? std::stoi(argv[7]) : -1;
         const int ngrid    = (argc > 8) ? std::stoi(argv[8]) : 300;
         const double v    = (argc > 9) ? std::stod(argv[9]) : 1.0;
         const double v_b  = (argc > 10) ? std::stod(argv[10]) : 1.0;
         const double v_bd = (argc > 11) ? std::stod(argv[11]) : 1.0;//0.35 / 0.455; //1.0;
-        workflows::run_bent_waveguide_field(0.35, 0.455, 0.001, m_ang, n_defect, n_clad, fringe,
+        workflows::run_bent_waveguide_field(0.35, 0.455, 0.001, nm, n_defect, n_clad, fringe,
                                             npd, mode_idx, ngrid, v, v_b, v_bd);
-        // workflows::run_bent_waveguide_field(0.35, 0.35, 0.001, m_ang, n_defect, n_clad, fringe,
+        // workflows::run_bent_waveguide_field(0.35, 0.35, 0.001, nm, n_defect, n_clad, fringe,
         //                                     npd, mode_idx, ngrid, v, v_b, v_bd);
         return 0;
     }
@@ -376,26 +421,26 @@ int main(int argc, char** argv) {
         const int colbrook = (argc > 4) ? std::stoi(argv[4]) : 2;
         const int fringe = (argc > 5) ? std::stoi(argv[5]) : 1;
         const int npd = (argc > 6) ? std::stoi(argv[6]) : 32;
-        const int m_ang = (argc > 7) ? std::stoi(argv[7]) : 1;
+        const int nm = (argc > 7) ? std::stoi(argv[7]) : 11;
         const int grid_points = (argc > 8) ? std::stoi(argv[8]) : 101;
         const bool bent = (argc > 9) ? std::stoi(argv[9]) != 0 : true;
         const double v = (argc > 10) ? std::stod(argv[10]) : 1.0;
         const double v_b = (argc > 11) ? std::stod(argv[11]) : 1.0;
         const double v_bd = (argc > 12) ? std::stod(argv[12]) : 0.35 / 0.455;
         const auto patch = workflows::build_tessellated_patch(window_radius, patch_radius,
-            colbrook, bent, 0.35, 0.35, m_ang, fringe, npd, v, v_b, v_bd);
+            colbrook, bent, 0.35, 0.35, nm, fringe, npd, v, v_b, v_bd);
         workflows::run_tessellated_waveguide_field(patch, grid_points);
         return 0;
     }
 
     if (mode == "bent-waveguide-exact") {
-        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [m_ang] [mode_index]
+        // Optional argv: n_defect [n_clad] [fringe] [points_per_disk] [nm] [mode_index]
         //                [grid_points] [delta] [seed_re] [seed_im] [v] [v_b] [v_bd].
         const int n_defect  = (argc > 2) ? std::stoi(argv[2]) : 3;
         const int n_clad    = (argc > 3) ? std::stoi(argv[3]) : 3;
         const int fringe    = (argc > 4) ? std::stoi(argv[4]) : 1;
         const int npd       = (argc > 5) ? std::stoi(argv[5]) : 64;
-        const int m_ang     = (argc > 6) ? std::stoi(argv[6]) : 1;
+        const int nm     = (argc > 6) ? std::stoi(argv[6]) : 11;
         const int mode_idx  = (argc > 7) ? std::stoi(argv[7]) : -1;
         const int ngrid     = (argc > 8) ? std::stoi(argv[8]) : 200;
         const double delta  = (argc > 9) ? std::stod(argv[9]) : 0.001;
@@ -404,9 +449,9 @@ int main(int argc, char** argv) {
         const double v      = (argc > 12) ? std::stod(argv[12]) : 1.0;
         const double v_b    = (argc > 13) ? std::stod(argv[13]) : 1.0;
         const double v_bd   = (argc > 14) ? std::stod(argv[14]) : 0.35 / 0.455; //1.0;
-        // workflows::run_bent_waveguide_exact(0.35, 0.455, delta, m_ang, n_defect, n_clad, fringe,
+        // workflows::run_bent_waveguide_exact(0.35, 0.455, delta, nm, n_defect, n_clad, fringe,
         //                                     npd, mode_idx, ngrid, sre, sim, v, v_b, v_bd);
-        workflows::run_bent_waveguide_exact(0.35, 0.35, delta, m_ang, n_defect, n_clad, fringe,
+        workflows::run_bent_waveguide_exact(0.35, 0.35, delta, nm, n_defect, n_clad, fringe,
                                             npd, mode_idx, ngrid, sre, sim, v, v_b, v_bd);
         return 0;
     }
@@ -472,7 +517,7 @@ int main(int argc, char** argv) {
         crystal.v_b = v_b;
 
         crystal.compute_high_symmetry_bands(omega_lo, omega_hi, n_omega, 1e-6, "crystal_hex_bands.csv", n_path, false);
-        // workflows::capacitance_dirac_bands(crystal, 0, 2, n_alpha);
+        // workflows::capacitance_dirac_bands(crystal, 0, 12, n_alpha);
 
         // ./bin/WaveguideModes hexagonal-lattice 200 20 20 0.12 0.12 3.1925 3.1936 0.001 1.0 0.1
         // ./bin/WaveguideModes hexagonal-lattice 300 20 20 0.12 0.12 1.5345 1.5354 0.001 1.0 0.1
@@ -481,7 +526,125 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if (mode == "colbrook-tests" || mode == "colbrook-field" || mode == "interface-modes") {
+    if (mode == "interface-modes") {
+        try {
+            using namespace workflows;
+            const int window_radius = (argc > 2) ? std::stoi(argv[2]) : 2;
+            const int colbrook = (argc > 3) ? std::stoi(argv[3]) : 2;
+            const int min_radius = (argc > 4) ? std::stoi(argv[4]) : std::max(window_radius, 2);
+            const int max_radius = (argc > 5) ? std::stoi(argv[5]) : 10;
+            const int Nz = (argc > 6) ? std::stoi(argv[6]) : 100;
+            const int npd = (argc > 7) ? std::stoi(argv[7]) : 50;
+            const int nm = (argc > 8) ? std::stoi(argv[8]) : 11;
+            const double z_min = (argc > 9) ? std::stod(argv[9]) : 0.0;
+            double z_max = (argc > 10) ? std::stod(argv[10]) : 10.0;
+            const double omega0 = (argc > 11) ? std::stod(argv[11]) : 18.411837813;
+            int Nmultipole = (argc > 12) ? std::stoi(argv[12]) : std::ceil(omega0) + 5;
+            const double v = (argc > 13) ? std::stod(argv[13]) : 1.0;
+            // Retained positional argument for compatibility; field sampling is not implemented here.
+            const int grid_points = (argc > 14) ? std::stoi(argv[14]) : 801;
+            const int fringe = (argc > 15) ? std::stoi(argv[15]) : 0;
+            const bool export_vector = (argc > 16) ? std::stoi(argv[16]) != 0 : false;
+            if (argc > 17 || window_radius < 0 || min_radius < window_radius || max_radius < min_radius ||
+                colbrook < 0 || fringe < 0 || Nz < 1 || npd < 8 ||
+                Nmultipole < decode_nm(nm).m_ang || Nmultipole > (npd - 2) / 2 || grid_points < 1 ||
+                !std::isfinite(z_min) || (argc > 10 && (!std::isfinite(z_max) || z_max <= z_min)) ||
+                !std::isfinite(omega0) || omega0 <= 0 || !std::isfinite(v) || v <= 0)
+                throw std::invalid_argument("Require 0 <= window_radius <= min_radius <= max_radius, "
+                    "nonnegative buffers, valid nm, Nz >= 1, npd >= 8, "
+                    "m=nm%10 <= Nmultipole and npd > 2*Nmultipole+1, positive frequency/speed, "
+                    "and a finite increasing z range");
+
+            const LatticeVectors up{Vector2d(1.0, 0.0), Vector2d(0.5, std::sqrt(3.0) / 2)};
+            const LatticeVectors down{Vector2d(1.0, 0.0), Vector2d(0.5, -std::sqrt(3.0) / 2)};
+            // Two nonintersecting honeycomb sites. The old second center overlapped the first disk.
+            const std::vector<Disk> disks_up{
+                {0.1, Vector2d(0.5, std::sqrt(3.0) / 6), 1.0},
+                {0.1, Vector2d(0.25, std::sqrt(3.0) / 12), 1.0}
+            };
+            Nmultipole = std::max((double)decode_nm(nm).m_ang, std::ceil(omega0 * disks_up[0].r / v) + 5);
+            auto disks_down = disks_up;
+            for (auto& d : disks_down) d.c.y() = -d.c.y();
+            auto p = build_interface_patch(window_radius, min_radius, colbrook, up, down, nm,
+                disks_up, disks_down, fringe, npd, omega0, v, Nmultipole);
+            if (argc <= 10) {
+                // Same heuristic as colbrook-tests, but gather matching physical rows in 2D.
+                const auto layout = make_interface_layout(p);
+                MatrixXcd squareC(p.bigC.cols(), p.bigC.cols());
+                for (Eigen::Index j = 0; j < p.bigC.cols(); ++j)
+                    squareC.row(j) = p.bigC.row(layout.source_rows[j]);
+                ComplexEigenSolver<MatrixXcd> es(squareC, false);
+                if (es.info() != Success || !es.eigenvalues().allFinite())
+                    throw std::runtime_error("Failed to estimate scan bound; supply z_min and z_max explicitly");
+                z_max = 1.5 * es.eigenvalues().real().maxCoeff();
+            }
+            if (!std::isfinite(z_max) || z_max <= z_min)
+                throw std::invalid_argument("Invalid scan bound; supply z_min and z_max explicitly");
+
+            std::cout << "Interface scan: z in [" << z_min << ", " << z_max << "], "
+                      << Nz + 1 << " samples per radius; local templates are reused.\n";
+            for (int M = min_radius; M <= max_radius; M += 2) {
+                p.patch_radius = M;
+                if (M != min_radius) p.bigC = assemble_interface_matrix(p);
+                const MatrixXcd& C = p.bigC;
+                if (!C.allFinite()) throw std::runtime_error("Interface operator contains non-finite entries");
+                const auto layout = make_interface_layout(p);
+                // In 2D the source DOFs occupy separated row blocks, not one middleRows segment.
+                // MatrixXcd squareC(C.cols(), C.cols());
+                // for (Eigen::Index j = 0; j < C.cols(); ++j)
+                //     squareC.row(j) = C.row(layout.source_rows[j]);
+                const double defect = (squareC - squareC.adjoint()).norm();
+                std::cout << "Scanning radius " << M << ": " << C.rows() << " x " << C.cols()
+                          << std::endl;//<< ", matching-cell relative Hermiticity defect: "
+                          //<< (squareC.norm() > 0 ? defect / squareC.norm() : 0) << std::endl;
+                const std::string filename = "interface_singular_values" + std::to_string(M) + ".csv";
+                std::ofstream out(filename);
+                out.exceptions(std::ios::failbit | std::ios::badbit);
+                out.precision(std::numeric_limits<double>::max_digits10);
+                double best_sigma = std::numeric_limits<double>::infinity();
+                double best_z = z_min;
+                for (int zi = 0; zi <= Nz; ++zi) {
+                    const double z = std::lerp(z_min, z_max, double(zi) / double(Nz));
+                    MatrixXcd shifted = C;
+                    for (Eigen::Index j = 0; j < C.cols(); ++j)
+                        shifted(layout.source_rows[j], j) -= z;
+                    // The scan only needs singular values. Compute V once at the best sample if requested.
+                    Eigen::BDCSVD<MatrixXcd> svd(shifted);
+                    if (svd.info() != Eigen::Success || !svd.singularValues().allFinite())
+                        throw std::runtime_error("Interface SVD failed at z=" + std::to_string(z));
+                    const double sigma = svd.singularValues().minCoeff();
+                    out << z << ',' << sigma << '\n';
+                    if (sigma < best_sigma) { best_sigma = sigma; best_z = z; }
+                    if (zi % std::max(1, Nz / 10) == 0 || zi == Nz) {
+                        out.flush();
+                        std::cout << "  sample " << zi + 1 << '/' << Nz + 1
+                                  << ": z=" << z << ", sigma_min=" << sigma << std::endl;
+                    }
+                }
+                out.close();
+                std::cout << "[wrote] " << filename << "; minimum sigma=" << best_sigma
+                          << " at z=" << best_z << '\n';
+                if (export_vector) {
+                    MatrixXcd shifted = C;
+                    for (Eigen::Index j = 0; j < C.cols(); ++j)
+                        shifted(layout.source_rows[j], j) -= best_z;
+                    Eigen::BDCSVD<MatrixXcd> svd(shifted, Eigen::ComputeThinV);
+                    if (svd.info() != Eigen::Success || !svd.singularValues().allFinite() || !svd.matrixV().allFinite())
+                        throw std::runtime_error("Interface singular-vector solve failed");
+                    const VectorXcd vector = svd.matrixV().col(C.cols() - 1);
+                    std::cout << "  mode residual=" << (shifted * vector).norm() << '\n';
+                    save_interface_singular_vector("interface_singular_vector_radius_" + std::to_string(M) + ".csv",
+                                                   vector, p, best_z, svd.singularValues().minCoeff());
+                }
+            }
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "interface-modes: " << error.what() << '\n';
+            return 1;
+        }
+    }
+
+    if (mode == "colbrook-tests" || mode == "colbrook-field") {
         const bool export_field = mode != "colbrook-tests";
         const int window_radius = (argc > 2) ? std::stoi(argv[2]) : 4;
         const int colbrook = (argc > 3) ? std::stoi(argv[3]) : 4;
@@ -489,7 +652,7 @@ int main(int argc, char** argv) {
         const int max_radius = (argc > 5) ? std::stoi(argv[5]) : 20;
         const int Nz = (argc > 6) ? std::stoi(argv[6]) : 15000;
         const int npd = (argc > 7) ? std::stoi(argv[7]) : 32;
-        const int m_ang = (argc > 8) ? std::stoi(argv[8]) : 2;
+        const int nm = (argc > 8) ? std::stoi(argv[8]) : 12;
         const double z_min = (argc > 9) ? std::stod(argv[9]) : 0.0;
         double z_max = (argc > 10) ? std::stod(argv[10]) : 10.0;
         const double r = (argc > 11) ? std::stod(argv[11]) : 0.35;
@@ -500,17 +663,17 @@ int main(int argc, char** argv) {
         const int grid_points = (argc > 16) ? std::stoi(argv[16]) : 801;
         const int fringe = (argc > 17) ? std::stoi(argv[17]) : 1;
         if (window_radius < 0 || min_radius < window_radius || max_radius < min_radius ||
-            colbrook < 0 || fringe < 0 || m_ang < 0 || Nz < 1 || npd < 8 || grid_points < 16 ||
+            colbrook < 0 || fringe < 0 || Nz < 1 || npd < 8 || grid_points < 16 ||
             !std::isfinite(z_min) || (argc > 10 && (!std::isfinite(z_max) || z_max <= z_min))) {
             std::cerr << "Require 0 <= window_radius <= min_radius <= max_radius, nonnegative buffers "
-                         "and angular order, num_intervals >= 1, points_per_disk >= 8, "
+                         "and a valid nm mode, num_intervals >= 1, points_per_disk >= 8, "
                          "grid_points >= 16, and a finite increasing z range.\n";
             return 1;
         }
 
         // The expensive local solves are independent of the assembled patch radius.
         auto p = workflows::build_tessellated_patch(window_radius, min_radius, colbrook,
-            true, r, r_def, m_ang, fringe, npd, v, v_b, v_bd);
+            true, r, r_def, nm, fringe, npd, v, v_b, v_bd);
         if (!p.bigC.allFinite())
             throw std::runtime_error("Tessellated operator contains non-finite entries");
         const int row_offset = p.modes * colbrook;
@@ -573,7 +736,7 @@ int main(int argc, char** argv) {
                     // Get the last singular vector
                     VectorXcd v_z = svd.matrixV().col(svd.singularValues().size() - 1);
                     const std::string filename_v = "bent_waveguide_singular_vector_" + std::to_string(z) + ".csv";
-                    save_singular_vector(filename_v, v_z, M, p.modes, z, svd.singularValues().minCoeff());
+                    save_singular_vector(filename_v, v_z, M, p.nm, z, svd.singularValues().minCoeff());
                     return 0;
                 }
             }
@@ -581,7 +744,7 @@ int main(int argc, char** argv) {
             std::cout << "[wrote] " << filename << "\n";
             if (export_field)
                 save_singular_vector("bent_waveguide_singular_vector_radius_" + std::to_string(M) + ".csv",
-                                     best_vector, M, p.modes, best_z, best_sigma);
+                                     best_vector, M, p.nm, best_z, best_sigma);
             // if (M > max_radius / 2) break;
         }
         if (export_field) {
@@ -599,7 +762,7 @@ int main(int argc, char** argv) {
             out_z.open(filename);
             
             const auto p = workflows::build_tessellated_patch(n, 20, 0,
-                                    true, 0.35, 0.455, m_ang, 1, npd, 1.0, 1.0, 1.0);
+                                    true, 0.35, 0.455, nm, 1, npd, 1.0, 1.0, 1.0);
 
             cout << "Hermiticity: " << (p.bigC - p.bigC.adjoint()).norm() / p.bigC.norm() << "\n";
 
@@ -621,7 +784,7 @@ int main(int argc, char** argv) {
         // int n_min = 0, n_max = 6;
         // std::cout.precision(std::numeric_limits<double>::max_digits10);
         // const auto p2 = workflows::build_tessellated_patch(4, 7, colbrook,
-        //                             true, 0.35, 0.455, m_ang, 1, npd, 1.0, 1.0, 1.0);
+        //                             true, 0.35, 0.455, nm, 1, npd, 1.0, 1.0, 1.0);
         // for (int n = n_min; n <= n_max; ++n) {
         //     const std::string filename = "bent_waveguide_singular_values_colbr_" + std::to_string(n) + ".csv";
         //     std::ofstream out_z;
@@ -677,4 +840,8 @@ int main(int argc, char** argv) {
 
     print_usage(argv[0]);
     return (mode == "help" || mode == "-h" || mode == "--help") ? 0 : 1;
+}
+catch (const std::exception& error) {
+    std::cerr << "WaveguideModes: " << error.what() << '\n';
+    return 1;
 }

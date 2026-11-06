@@ -2,9 +2,11 @@
 
 namespace workflows {
 
-    void capacitance_dirac_bands(Crystal& crystal, int r_idx, int max_m, int Npath) {
+    void capacitance_dirac_bands(Crystal& crystal, int r_idx, int max_nm, int Npath) {
+        const auto limit = decode_nm(max_nm);
+        const int max_m = limit.m_ang;
         struct ModeFamily {
-            int m;          // angular order
+            int nm;          // encoded radial/angular mode
             double omega0;  // interior Neumann base frequency of the defect disk
             int modes;      // multiplicity (size of C^reg)
             MatrixXcd G;    // eigenmode traces on the supercell boundary
@@ -23,8 +25,9 @@ namespace workflows {
         // cout << "num = " << mesh.get_num_meshes() << ", Ntot = " << Ntot << ", sigma = " << sigma.transpose() << "\n";
 
         for (int m_ang = 0; m_ang <= max_m; ++m_ang) {
-            const double beta = first_neumann_zero(m_ang);
-            ModeFamily fam{m_ang, crystal.v_b * beta / crystal.Rs.at(r_idx), Nmesh * ((m_ang == 0) ? 1 : 2),
+            const int nm = 10 * limit.n_rad + m_ang;
+            const double beta = neumann_zero(nm);
+            ModeFamily fam{nm, crystal.v_b * beta / crystal.Rs.at(r_idx), Nmesh * ((m_ang == 0) ? 1 : 2),
                         MatrixXcd::Zero(Ntot, Nmesh * ((m_ang == 0) ? 1 : 2))};
             const double Anorm =
                 1.0 / (std::sqrt(M_PI) * crystal.Rs.at(0)
@@ -44,7 +47,7 @@ namespace workflows {
                                                                 * double(m_ang) * 2. * M_PI / double(N) * double(loc));
             }
             families.push_back(std::move(fam));
-            std::cout << "   m=" << m_ang << ": omega_0=" << families.back().omega0
+            std::cout << "   nm=" << nm << ": omega_0=" << families.back().omega0
                     << " (= v_bd * " << beta << "/R_def), multiplicity " << families.back().modes << "\n";
         }
 
@@ -87,14 +90,14 @@ namespace workflows {
 
                 for (int j = 0; j < modes; ++j) {
                     const cpxd omega = omega0 + crystal.get_delta() * lam(j);  // leading order: Thm 4.3, eq (4.12)
-                    out_lo << fam.m << "," << kp.s << "," << omega.real() << "," << omega.imag()
+                    out_lo << fam.nm << "," << kp.s << "," << omega.real() << "," << omega.imag()
                         << "," << lam(j).real() << "," << lam(j).imag() << "," << herm << "\n";
-                    cout << "    m=" << fam.m << " leading-order seed: omega=" << omega
+                    cout << "    nm=" << fam.nm << " leading-order seed: omega=" << omega
                             << " lambda=" << lam(j) << " herm=" << herm << "\n";
                 }
 
                 // header
-                out_cap << "alpha,fi";
+                out_cap << "alpha,nm";
                 for (int i = 0; i < modes; ++i) {
                     for (int j = 0; j < modes; ++j) {
                         out_cap << ",C_" << i << "_" << j << "_re";
@@ -104,7 +107,7 @@ namespace workflows {
                 out_cap << "\n";
 
                 // inside alpha loop
-                out_cap << kp.s << "," << fi;
+                out_cap << kp.s << "," << fam.nm;
                 for (int i = 0; i < modes; ++i) {
                     for (int j = 0; j < modes; ++j) {
                         auto z = Creg(i, j);

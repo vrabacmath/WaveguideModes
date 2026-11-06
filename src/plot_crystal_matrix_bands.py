@@ -8,6 +8,8 @@ Or from build:
 
 from pathlib import Path
 
+from neumann_modes import band_nm
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -21,7 +23,10 @@ CAPACITANCE_FILE = "build/dirac_capacitance_bands_leading.csv"
 CRYSTAL_RADIUS = 0.35    # MUST match the radius passed to run_crystal_matrix_bands in main.cpp
 DEFECT_RADIUS = 0.455    # line-defect resonator radius (set None to hide the defect overlay)
 SIGMA_THRESHOLD = 0.02   # keep sigma_min minima below this as band points (lower = crisper)
-NEUMANN_ZEROS = {0: 3.8317059702, 1: 1.8411837813, 2: 3.0542369282, 3: 4.2011889412}   # j'_{m,1}
+NEUMANN_ZEROS = {10: 3.831705970207512, 11: 1.841183781340660,
+                 12: 3.054236928227140, 13: 4.201188941210528,
+                 14: 5.317553126083994, 15: 6.415616375700240,
+                 21: 5.331442773525032}  # Selected gallery modes, keyed by nm
 DIRICHLET_ZEROS = [("j_{0,1}", 2.4048255577), ("j_{1,1}", 3.8317059702),
                    ("j_{2,1}", 5.1356223019), ("j_{0,2}", 5.5200781103),
                    ("j_{1,2}", 7.0155866699)]  # interior Dirichlet eigenvalues -> spurious BIE lines
@@ -65,12 +70,12 @@ def load_csv(relative_path, min_columns):
 
 def mark_eigenvalue_lines(ax, omega_lo, omega_hi):
     """Mark the relevant interior disk eigenvalues, the three families drawn separately:
-      * green dashed -- CRYSTAL Neumann eigenvalues j'_{m,1}/R_crystal: the real high-contrast bulk
+      * green dashed -- CRYSTAL Neumann eigenvalues j'_{m,n}/R_crystal: the real high-contrast bulk
         bands sit here;
       * red dotted   -- CRYSTAL Dirichlet eigenvalues j_{m,n}/R_crystal: these make the single-layer
         BIE / multipole operator singular for every Bloch vector, i.e. the *spurious* perfectly-flat
         lines (e.g. j_{0,1}/R = 2.4048/0.35 = 6.857). Ignore those when reading the band structure;
-      * gold dash-dot -- DEFECT Neumann eigenvalues j'_{m,1}/R_defect: the line-defect resonances we
+      * gold dash-dot -- DEFECT Neumann eigenvalues j'_{m,n}/R_defect: the line-defect resonances we
         want to land in the bulk gaps (e.g. dipole 1.841/0.455 = 4.05, quadrupole 3.054/0.455 = 6.71).
     """
     def draw(value, **kw):
@@ -91,11 +96,11 @@ def eigenvalue_legend_handles():
     from matplotlib.lines import Line2D
     handles = [Line2D([], [], color="tab:green", ls="--"),
                Line2D([], [], color="tab:red", ls=":")]
-    labels = [r"crystal Neumann $j'_{m,1}/R$ (real bands)",
+    labels = [r"crystal Neumann $j'_{m,n}/R$ (real bands)",
               r"crystal Dirichlet $j_{m,n}/R$ (spurious flat lines)"]
     if DEFECT_RADIUS:
         handles.append(Line2D([], [], color="goldenrod", ls="-."))
-        labels.append(r"defect Neumann $j'_{m,1}/R_{\rm def}$ (target, in gaps)")
+        labels.append(r"defect Neumann $j'_{m,n}/R_{\rm def}$ (target, in gaps)")
     return handles, labels
 
 
@@ -156,7 +161,7 @@ def extract_bands(filename, sigma_threshold=SIGMA_THRESHOLD):
 
 
 def plot_capacitance_overlay(ax, omega_lo, omega_hi):
-    """Use the same (m, path arclength, real frequency) columns as plot.py."""
+    """Use the same (nm, path arclength, real frequency) columns as plot.py."""
     try:
         data = load_csv(CAPACITANCE_FILE, 7)
     except FileNotFoundError as exc:
@@ -170,11 +175,12 @@ def plot_capacitance_overlay(ax, omega_lo, omega_hi):
               "check that both CSVs use the same radii and speeds.")
         return
 
-    for m in np.unique(visible[:, 0].astype(int)):
-        rows = visible[visible[:, 0] == m]
+    visible[:, 0] = [band_nm(value) for value in visible[:, 0]]
+    for nm in np.unique(visible[:, 0].astype(int)):
+        rows = visible[visible[:, 0] == nm]
         ax.scatter(rows[:, 1], rows[:, 2], s=30, marker="o", facecolors="none",
                    edgecolors="tab:red", linewidths=0.9, zorder=3,
-                   label=rf"Capacitance ($m={m}$)")
+                   label=rf"Capacitance ($nm={nm}$)")
 
 
 def plot_band_lines():

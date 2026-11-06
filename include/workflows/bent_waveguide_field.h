@@ -24,7 +24,7 @@ Parameters:
 * radius = radius of the cladding disks
 * defect_radius = radius of the defect disks
 * delta = inverse contrast
-* m_ang = order, monopole, dipole, quadrupole...
+* nm = 10*n + m: 10 monopole, 11 dipole, 12 quadrupole, 21 second radial dipole
 * n_defect = number of defect disks along each arm of the L (total = 2*n_defect + 1)
 * n_clad = number of cladding disks along each axis (total = (2*n_clad + 1)^2 - (2*n_defect + 1))
 * fringe = number of boundary defect disks to keep in the mesh but drop from C
@@ -42,7 +42,7 @@ Writes:
   void run_bent_waveguide_field(double radius = 0.35,
                               double defect_radius = 0.455,
                               double delta = 0.05,
-                              int m_ang = 1,
+                              int nm = 11,
                               int n_defect = 3,
                               int n_clad = 3,
                               int fringe = 1,

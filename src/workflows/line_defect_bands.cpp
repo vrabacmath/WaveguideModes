@@ -11,6 +11,7 @@
 #include "Eigen/Dense"
 #include "multipole.h"
 #include "utils.h"
+#include "workflows/bessel_helpers.h"
 
 namespace workflows {
 
@@ -59,19 +60,6 @@ std::pair<double, double> fine_scan_golden(const Objective& f, double lo, double
     return golden_min_scalar(f, xs[l], xs[r]);
 }
 
-// First positive zero of J_m' = interior Neumann eigenvalue of the disk (radial index 1). The
-// defect resonances sit at omega_0 = v_b * j'_{m,1}/R_def; m>=1 is doubly degenerate.
-double neumann_zero(int m) {
-    switch (m) {
-        case -1: return 0.0;          // static monopole
-        case 0: return 3.8317059702;  // monopole
-        case 1: return 1.8411837813;  // dipole
-        case 2: return 3.0542369282;  // quadrupole
-        case 3: return 4.2011889412;  // octupole
-        default: return 1.8411837813;
-    }
-}
-
 // Interior Dirichlet eigenvalues j_{p,q} (zeros of J_p). At omega = j_{p,q}/R the exterior
 // single-layer / multipole operator is spuriously singular for every Bloch vector -> the flat
 // bands. We exclude neighbourhoods of these from the defect-mode search.
@@ -91,9 +79,11 @@ bool near_dirichlet(double omega, const std::vector<double>& radii, double tol) 
 }
 
 void run_line_defect_bands_neumann(double radius, double defect_radius, double delta,
-                                   int max_m, double window_factor, int num_alpha,
+                                   int max_nm, double window_factor, int num_alpha,
                                    int n_gauss, int n_multipole, double sub_lo, double sub_hi,
                                    double v, double v_b, double v_bd) {
+    const auto limit = decode_nm(max_nm);
+    const int max_m = limit.m_ang;
     const double contour = 1e-5;       // small Im(omega): enough regularization without merging close dips
     const double dir_tol = 0.06;       // tolerance for an exterior Dirichlet eigenvalue
     const double gap_threshold = 0.25; // gap if min_ay(sigma_min A) > this * median_ay (see in_gap below)
@@ -102,7 +92,7 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
     // select a multipole cutoff that is appropriate for the highest defect resonance to be searched
     double omega_hi = 0.0;
     for (int mm = 0; mm <= max_m; ++mm)
-        omega_hi = std::max(omega_hi, v_bd * neumann_zero(mm) / defect_radius + window_factor * delta);
+        omega_hi = std::max(omega_hi, v_bd * neumann_zero(10 * limit.n_rad + mm) / defect_radius + window_factor * delta);
     if (n_multipole <= 0)
         n_multipole = std::max(max_m + 3, static_cast<int>(std::ceil(omega_hi * radius / v)) + 3);
 
@@ -149,9 +139,9 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
 
     std::cout << "Line-defect bands near defect Neumann resonances (operator M): R=" << radius
               << ", R_def=" << defect_radius << ", delta=" << delta << ", N_multipole=" << n_multipole
-              << ", search +/-" << window_factor << "*delta around m=0.." << max_m << "\n";
+              << ", search +/-" << window_factor << "*delta around nm=" << 10 * limit.n_rad << ".." << max_nm << "\n";
     for (int m = 0; m <= max_m; ++m)
-        std::cout << "   m=" << m << ": omega_0=" << v_bd * neumann_zero(m) / defect_radius
+        std::cout << "   nm=" << 10 * limit.n_rad + m << ": omega_0=" << v_bd * neumann_zero(10 * limit.n_rad + m) / defect_radius
                   << "  (multiplicity " << (m == 0 ? 1 : 2) << ")\n";
 
     std::ofstream out("defect_neumann_bands.csv");
@@ -163,7 +153,7 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
         if (std::abs(alpha_x) < 1e-9) alpha_x = 1e-6;
 
         for (int m = 0; m <= max_m; ++m) {
-            const double omega0 = v_bd * neumann_zero(m) / defect_radius;
+            const double omega0 = v_bd * neumann_zero(10 * limit.n_rad + m) / defect_radius;
             const double W = window_factor * delta * std::max(1, m);
             const double lo = omega0 - W, hi = omega0 + W;
             const int mult = (m == 0) ? 1 : 2;
@@ -217,11 +207,11 @@ void run_line_defect_bands_neumann(double radius, double defect_radius, double d
                 accepted.push_back(omega_refined);
                 const int gap = in_gap(omega_refined, alpha_x) ? 1 : 0;
                 const int dir = near_dirichlet(omega_refined, dir_radii, dir_tol) ? 1 : 0;
-                out << m << "," << alpha_x << "," << omega_refined << "," << sr << "," << gap << "," << dir << "\n";
+                out << 10 * limit.n_rad + m << "," << alpha_x << "," << omega_refined << "," << sr << "," << gap << "," << dir << "\n";
             }
         }
 
-        // subwavelength (static or 0th monopole, labelled m=-1) defect band: the deepest in-gap,
+        // subwavelength (static or 0th monopole, labelled nm=-1) defect band: the deepest in-gap,
         // non-Dirichlet dip of sigma_min(M) over [sub_lo, sub_hi].
         if (do_sub) {
             const int nss = 120;

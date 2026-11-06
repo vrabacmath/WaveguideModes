@@ -20,14 +20,15 @@ namespace workflows {
 using namespace Eigen;
 
 void run_patch_capacitance(double radius, double defect_radius, double delta,
-                           int m_ang, int n_defect, int n_clad, int fringe,
+                           int nm, int n_defect, int n_clad, int fringe,
                            int points_per_disk, double v, [[maybe_unused]] double v_b,
                            double v_bd) {
+    const int m_ang = decode_nm(nm).m_ang;
     // v_b (crystal interior speed) does not enter the leading-order capacitance: the cladding
     // disks are off-resonant at omega_0 and contribute only through the exterior operators.
     const int N = std::max(points_per_disk, 8);
     const int modes = (m_ang == 0) ? 1 : 2;
-    const double beta = first_neumann_zero(m_ang);
+    const double beta = neumann_zero(nm);
     const double omega0 = v_bd * beta / defect_radius;
     const cpxd k = cpxd(omega0, 1e-3) / v;
 
@@ -62,7 +63,7 @@ void run_patch_capacitance(double radius, double defect_radius, double delta,
     const int n_def = static_cast<int>(defect_disk.size());
 
     std::cout << "Patch capacitance (finite, centered): R=" << radius << ", R_def="
-              << defect_radius << ", m=" << m_ang << ", omega_0=" << omega0 << ", "
+              << defect_radius << ", nm=" << nm << ", omega_0=" << omega0 << ", "
               << disks.size() << " disks (" << n_def << " defect + "
               << (disks.size() - static_cast<std::size_t>(n_def)) << " cladding), " << Ntot
               << " boundary points\n";

@@ -37,7 +37,7 @@ Members:
 * sigma = The boundary condition values
 * k, kVb, kV, kVbd = Wave numbers for the background, crystal interior, and defect interior
 * omega0 = The resonant frequency of the defect
-* beta = The first positive zero of the derivative of the Bessel function J_m
+* beta = The selected nth positive zero of the derivative of the Bessel function J_m
 * Anorm = Normalization constant for the defect modes
 * radius = Radius of the cladding disks
 * defect_radius = Radius of the defect disks
@@ -46,7 +46,7 @@ Members:
 * center = Index of the center disk in the defect chain
 * modes = Number of defect modes (1 for monopole, 2 for dipole, etc.)
 * N = Number of quadrature points per disk boundary
-* m_ang = Angular order of the defect modes
+* nm = encoded radial/angular mode; m_ang = decoded angular order
 * Ntot = Total number of boundary segments in the patch
 */
 struct BentPatch {
@@ -63,7 +63,7 @@ struct BentPatch {
 
     cpxd k, kVb, kV, kVbd;  // kV: background speed, kVb: crystal interior, kVbd: defect interior
     double omega0, beta, Anorm, radius, defect_radius;
-    int L, L_main, center, modes, N, m_ang, Ntot;
+    int L, L_main, center, modes, N, nm, m_ang, Ntot;
 
     // Lattice site of chain position `ell`: the +x arm for ell <= 0, the +y arm for ell >= 0.
     static std::pair<int, int> site_at(int ell) {
@@ -77,7 +77,7 @@ kept in the mesh but excluded from main_indices.
 Parameters:
 * radius = radius of the cladding disks
 * defect_radius = radius of the defect disks
-* m_ang = order, monopole, dipole, quadrupole...
+* nm = 10*n + m: 10 monopole, 11 dipole, 12 quadrupole, 21 second radial dipole
 * n_defect = number of defect disks along each arm of the L (total = 2*n_defect + 1)
 * n_clad = number of cladding disks along each axis (total = (2*n_clad + 1)^2 - (2*n_defect + 1))
 * fringe = number of boundary defect disks to keep in the mesh but drop from C
@@ -85,7 +85,7 @@ Parameters:
 * v = wave speed in free space
 * v_b = wave speed in the cladding crystal interior
 * v_bd = wave speed in the defect interior*/
-BentPatch build_bent_patch(double radius, double defect_radius, int m_ang, int n_defect,
+BentPatch build_bent_patch(double radius, double defect_radius, int nm, int n_defect,
                            int n_clad, int colbrook, int fringe, int points_per_disk, double v = 1.0,
                            double v_b = 1.0, double v_bd = 1.0, bool verbose = true);
 
@@ -124,7 +124,7 @@ struct TessellatedPatch {
     cpxd k, kVb, kV, kVbd;  // kV: background speed, kVb: crystal interior, kVbd: defect interior
     double omega0, beta, Anorm, radius, defect_radius;
 
-    int N, modes, m_ang;
+    int N, modes, nm, m_ang;
 };
 
 // Reuse cached block columns without any boundary-integral solves. There are 2*T+1
@@ -143,7 +143,7 @@ MatrixXcd assemble_tessellated_columns(const std::vector<MatrixXcd>& columns,
 // The surrounding fringe stays in the boundary solve but contributes no coupling rows.
 // The bend uses BentPatch::site_at; bent=false uses the straight line (ell, 0).
 TessellatedPatch build_tessellated_patch(int window_radius, int patch_radius, int colbrook, bool bent,
-                                         double radius, double defect_radius, int m_ang,
+                                         double radius, double defect_radius, int nm,
                                          int fringe, int points_per_disk, double v = 1.0,
                                          double v_b = 1.0, double v_bd = 1.0, int Nmultipole = 10, bool verbose = true);
 

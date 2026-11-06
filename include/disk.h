@@ -6,6 +6,7 @@
 struct Disk {
     double r;
     Eigen::Vector2d c;
+    double v_b = -100.;
 };
 
 #endif // SUBWAVELENGTHRESONATORS_DISK_H

@@ -6,7 +6,7 @@
 
 namespace workflows {
 
-    void capacitance_dirac_bands(Crystal& crystal, int r_idx, int max_m, int Npath);
+    void capacitance_dirac_bands(Crystal& crystal, int r_idx, int max_nm, int Npath);
 
 } // namespace dirac_bands
 
