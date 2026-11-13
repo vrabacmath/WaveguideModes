@@ -29,6 +29,7 @@
 #include "workflows/colbrook_convergence.h"
 #include "workflows/dirac_bands.h"
 #include "workflows/interface_patch.h"
+#include "workflows/interface_field.h"
 #include "hex_crystal.h"
 
 
@@ -224,11 +225,18 @@ void print_usage(const char* prog) {
         << "  crystal-matrix-bands Bulk M-Gamma-X-M bands from CrystalA and multipoleA.\n"
         << "                       Optional: <points_per_segment> <n_omega> <points_per_disk> <n_multipole>\n"
         << "                       [v] [v_b]\n"
+        << "  hexagonal-lattice   Full multipole bands and leading capacitance bands.\n"
+        << "                       Optional: [n_omega] [n_path] [n_alpha] [r1] [r2]\n"
+        << "                       [omega_lo] [omega_hi] [delta] [v] [v_b] [scan_dirac_candidates=1]\n"
+        << "                       [v_b2] [capacitance_reference_disk=0]\n"
+        << "                       Default disks: (r,v_b)=(0.09,0.09),(0.11,0.11).\n"
+        << "                       Supplying v_b sets both speeds; v_b2 overrides disk 1.\n"
+        << "                       Set scan_dirac_candidates=0 to skip additional local Dirac scans.\n"
         << "  hexagonal-dirac     Direct local scan near K; defaults target omega=2.546138.\n"
         << "                       Optional: [n_omega=121] [n_alpha=21] [omega_lo=2.546132]\n"
         << "                       [omega_hi=2.546144] [omega_imag=1e-8] [radius=0.15]\n"
         << "                       [alpha_x=4pi/3] [alpha_y=0] [r1=0.12] [r2=0.12]\n"
-        << "                       [delta=0.001] [v=1] [v_b=0.1]\n"
+        << "                       [delta=0.001] [v=1] [v_b=0.1] [v_b2=v_b]\n"
         << "  patch-capacitance    Real-space capacitance matrix of a finite, CENTERED patch of the\n"
         << "                       line defect (no Floquet). Optional: <n_defect> <n_clad>\n"
         << "                       <points_per_disk> <nm> <fringe> [v] [v_b] [v_bd]\n"
@@ -260,8 +268,9 @@ void print_usage(const char* prog) {
         << "                       [window_radius=2] [colbrook=2] [min_radius=max(window_radius,2)]\n"
         << "                       [max_radius=min_radius+2] [num_intervals=100] [points_per_disk=32]\n"
         << "                       [nm=12] [z_min=0] [z_max=auto] [omega0=18.411837813] [Nmultipole=ceil(omega0)+5]\n"
-        << "                       [v=1] [reserved_grid_points=801] [fringe=0] [export_best_vector=0]\n"
-        << "                       Exports 2D DOF metadata with vectors; no field-grid export yet.\n"
+        << "                       [v=1] [grid_points=801] [fringe=0] [export_best_vector=0]\n"
+        << "  interface-field     Same arguments; always save mode vectors, then export local field\n"
+        << "                       bases as tessellated_interface_*.csv (grid_points >= 16).\n"
         << "  colbrook-convergence Track a local minimum for all four size/material mode cases.\n"
         << "                       Optional: [case=all] [N_list=8,12,16,20,30,40] [W_list=1,2,3,4,5,6]\n"
         << "                       [points_per_disk=32] [intervals=100] [passes=3] [half_width=0.2]\n"
@@ -471,16 +480,12 @@ int main(int argc, char** argv) try {
         const double delta = (argc > 12) ? std::stod(argv[12]) : 0.001;
         const double v = (argc > 13) ? std::stod(argv[13]) : 1.0;
         const double v_b = (argc > 14) ? std::stod(argv[14]) : 0.1;
-        BoundaryMesh mesh(36), mesh2(36);
-        mesh.generate_circle(r1, Vector2d(0.5, sqrt(3) / 6));
-        mesh2.generate_circle(r2, Vector2d(1., sqrt(3) / 3));
-        mesh.add_mesh(mesh2);
-        Crystal crystal(mesh, delta, Vector2d(1, 0), Vector2d(0.5, sqrt(3) / 2));
-        crystal.Rs = {r1, r2};
-        crystal.shifts = {Vector2d(0.5, sqrt(3) / 6), Vector2d(1., sqrt(3) / 3)};
-        crystal.circles_mesh = true;
-        crystal.v = v;
-        crystal.v_b = v_b;
+        const double v_b2 = (argc > 15) ? std::stod(argv[15]) : v_b;
+        const std::vector<Disk> disks{
+            {r1, Vector2d(0.5, std::sqrt(3.0) / 6), v_b},
+            {r2, Vector2d(1.0, std::sqrt(3.0) / 3), v_b2}
+        };
+        Crystal crystal(disks, delta, Vector2d(1, 0), Vector2d(0.5, std::sqrt(3.0) / 2), 36, v);
         crystal.compute_local_bands(omega_lo, omega_hi, n_omega, omega_imag,
                                     "multipoleA_dirac_local.csv", Vector2d(alpha_x, alpha_y),
                                     radius, n_alpha);
@@ -492,41 +497,67 @@ int main(int argc, char** argv) try {
         const int n_omega = (argc > 2) ? std::stoi(argv[2]) : 20;
         const int n_path = (argc > 3) ? std::stoi(argv[3]) : 20;
         const int n_alpha = (argc > 4) ? std::stoi(argv[4]) : 20;
-        const double r1 = (argc > 5) ? std::stod(argv[5]) : 0.12;
-        const double r2 = (argc > 6) ? std::stod(argv[6]) : 0.12;
+        const double r1 = (argc > 5) ? std::stod(argv[5]) : 0.09;
+        const double r2 = (argc > 6) ? std::stod(argv[6]) : 0.11;
         const double omega_lo = (argc > 7) ? std::stod(argv[7]) : 0.0;
         const double omega_hi = (argc > 8) ? std::stod(argv[8]) : 5.0;
         const double delta = (argc > 9) ? std::stod(argv[9]) : 0.001;
         const double v = (argc > 10) ? std::stod(argv[10]) : 1.0;
-        const double v_b = (argc > 11) ? std::stod(argv[11]) : 1.0;
+        const double v_b = (argc > 11) ? std::stod(argv[11]) : 0.09;
+        // A supplied legacy v_b sets both disks unless v_b2 is supplied as well.
+        const double v_b2 = (argc > 13) ? std::stod(argv[13]) : (argc > 11 ? v_b : 0.11);
+        const int reference_disk = (argc > 14) ? std::stoi(argv[14]) : 0;
+        const bool scan_dirac_candidates = (argc > 12) ? std::stoi(argv[12]) != 0 : true;
         std::cout << "Computing high-symmetry bands for a hexagonal lattice of circular disks with parameters:\n"
                   << "  omega in [" << omega_lo << "," << omega_hi << "], " << n_omega << " omega samples, delta = " << delta
-                  << ", v = " << v << ", v_b = " << v_b << "\n";
-        int N = 36;
-        BoundaryMesh mesh(N), mesh2(N);
-        mesh.generate_circle(r1, Vector2d(0.5, sqrt(3) / 6));
-        mesh2.generate_circle(r2, Vector2d(1., sqrt(3) / 3));
-        mesh.add_mesh(mesh2);
-        Vector2d a1(1.0, 0.0), a2(0.5, sqrt(3) / 2);
+                  << ", v = " << v << "\n";
+        const std::vector<Disk> disks{
+            {r1, Vector2d(0.5, std::sqrt(3.0) / 6), v_b},
+            {r2, Vector2d(1.0, std::sqrt(3.0) / 3), v_b2}
+        };
+        const Vector2d a1(1.0, 0.0), a2(0.5, std::sqrt(3.0) / 2);
+        Crystal crystal(disks, delta, a1, a2, 36, v);
+        for (std::size_t i = 0; i < disks.size(); ++i)
+            std::cout << "  disk " << i << ": r=" << disks[i].r << ", v_b=" << disks[i].v_b
+                      << ", center=(" << disks[i].c.transpose() << ")\n";
 
-        Crystal crystal(mesh, delta, a1, a2);
-        crystal.Rs = {r1, r2};
-        crystal.shifts = {Vector2d(0.5, sqrt(3) / 6), Vector2d(1., sqrt(3) / 3)};
-        crystal.circles_mesh = true;
-        crystal.v = v;
-        crystal.v_b = v_b;
+        std::vector<std::pair<int, std::pair<double, double>>> modes;
+        // modes.emplace_back(10, std::make_pair(3.8295, 3.8320));
+        // modes.emplace_back(11, std::make_pair(1.84175, 1.84210));
+        // modes.emplace_back(12, std::make_pair(3.0553, 3.0554));
+        // modes.emplace_back(13, std::make_pair(4.20261, 4.20264));
+        // modes.emplace_back(14, std::make_pair(5.3192630, 5.3192658));
+        // modes.emplace_back(15, std::make_pair(6.41757945, 6.417581));
+//         Min and max values for nm=20: 7.0025870129, 7.0184520694
+// Min and max values for nm=21: 5.3314804271, 5.3318052678
+// Min and max values for nm=22: 6.7059169855, 6.7076572137
+// Min and max values for nm=23: 8.0156439745, 8.0156490221
+// Min and max values for nm=24: 9.2828869297, 9.2829094254
+// Min and max values for nm=25: 10.5204574250, 10.5204574920
+        // modes.emplace_back(20, std::make_pair(7.0025870129, 7.0184520694));
+        // modes.emplace_back(21, std::make_pair(5.3314804271, 5.3318052678));
+        // modes.emplace_back(22, std::make_pair(6.7059169855, 6.7076572137));
+        // modes.emplace_back(23, std::make_pair(8.0156439745, 8.0156490221));
+        // modes.emplace_back(24, std::make_pair(9.2828869297, 9.2829094254));
+        // modes.emplace_back(25, std::make_pair(10.5204574250, 10.5204574920));
 
-        crystal.compute_high_symmetry_bands(omega_lo, omega_hi, n_omega, 1e-6, "crystal_hex_bands.csv", n_path, false);
-        // workflows::capacitance_dirac_bands(crystal, 0, 12, n_alpha);
+
+        // for (const auto& [mode_index, range] : modes) {
+        //     std::cout << "Scanning mode " << mode_index << " in range [" << range.first << ", " << range.second << "]\n";
+        //     crystal.compute_high_symmetry_bands(range.first, range.second, n_omega, 0., mode_index, (range.second - range.first)*0.5, n_path, false, scan_dirac_candidates);
+        // }
+        // crystal.compute_high_symmetry_bands(omega_lo, omega_hi, n_omega, 0., "crystal_hex_bands.csv", n_path, false, scan_dirac_candidates);
+        workflows::capacitance_dirac_bands(crystal, reference_disk, 25, n_alpha);
 
         // ./bin/WaveguideModes hexagonal-lattice 200 20 20 0.12 0.12 3.1925 3.1936 0.001 1.0 0.1
         // ./bin/WaveguideModes hexagonal-lattice 300 20 20 0.12 0.12 1.5345 1.5354 0.001 1.0 0.1
         // ./bin/WaveguideModes hexagonal-lattice 300 20 20 0.12 0.12 2.5460 2.5463 0.001 1.0 0.1
+        // 18.411825 18.411840
 
         return 0;
     }
 
-    if (mode == "interface-modes") {
+    if (mode == "interface-modes" || mode == "interface-field") {
         try {
             using namespace workflows;
             const int window_radius = (argc > 2) ? std::stoi(argv[2]) : 2;
@@ -538,17 +569,17 @@ int main(int argc, char** argv) try {
             const int nm = (argc > 8) ? std::stoi(argv[8]) : 11;
             const double z_min = (argc > 9) ? std::stod(argv[9]) : 0.0;
             double z_max = (argc > 10) ? std::stod(argv[10]) : 10.0;
-            const double omega0 = (argc > 11) ? std::stod(argv[11]) : 18.411837813;
+            const double omega0 = (argc > 11) ? std::stod(argv[11]) : neumann_zero(nm);
             int Nmultipole = (argc > 12) ? std::stoi(argv[12]) : std::ceil(omega0) + 5;
             const double v = (argc > 13) ? std::stod(argv[13]) : 1.0;
-            // Retained positional argument for compatibility; field sampling is not implemented here.
+            const bool export_field = mode == "interface-field";
             const int grid_points = (argc > 14) ? std::stoi(argv[14]) : 801;
             const int fringe = (argc > 15) ? std::stoi(argv[15]) : 0;
-            const bool export_vector = (argc > 16) ? std::stoi(argv[16]) != 0 : false;
+            const bool export_vector = export_field || (argc > 16 && std::stoi(argv[16]) != 0);
             if (argc > 17 || window_radius < 0 || min_radius < window_radius || max_radius < min_radius ||
                 colbrook < 0 || fringe < 0 || Nz < 1 || npd < 8 ||
-                Nmultipole < decode_nm(nm).m_ang || Nmultipole > (npd - 2) / 2 || grid_points < 1 ||
-                !std::isfinite(z_min) || (argc > 10 && (!std::isfinite(z_max) || z_max <= z_min)) ||
+                Nmultipole < decode_nm(nm).m_ang || Nmultipole > (npd - 2) / 2 || grid_points < (export_field ? 16 : 1) ||
+                !std::isfinite(z_min) || (argc > 10 && (!std::isfinite(z_max) || z_max < z_min)) ||
                 !std::isfinite(omega0) || omega0 <= 0 || !std::isfinite(v) || v <= 0)
                 throw std::invalid_argument("Require 0 <= window_radius <= min_radius <= max_radius, "
                     "nonnegative buffers, valid nm, Nz >= 1, npd >= 8, "
@@ -559,15 +590,15 @@ int main(int argc, char** argv) try {
             const LatticeVectors down{Vector2d(1.0, 0.0), Vector2d(0.5, -std::sqrt(3.0) / 2)};
             // Two nonintersecting honeycomb sites. The old second center overlapped the first disk.
             const std::vector<Disk> disks_up{
-                {0.1, Vector2d(0.5, std::sqrt(3.0) / 6), 1.0},
-                {0.1, Vector2d(0.25, std::sqrt(3.0) / 12), 1.0}
+                {0.09, Vector2d(0.5, std::sqrt(3.0) / 6), 0.09},
+                {0.11, Vector2d(1.0, std::sqrt(3.0) / 3), 0.11}
             };
             Nmultipole = std::max((double)decode_nm(nm).m_ang, std::ceil(omega0 * disks_up[0].r / v) + 5);
             auto disks_down = disks_up;
             for (auto& d : disks_down) d.c.y() = -d.c.y();
             auto p = build_interface_patch(window_radius, min_radius, colbrook, up, down, nm,
                 disks_up, disks_down, fringe, npd, omega0, v, Nmultipole);
-            if (argc <= 10) {
+            if (z_max < 1e-12) {
                 // Same heuristic as colbrook-tests, but gather matching physical rows in 2D.
                 const auto layout = make_interface_layout(p);
                 MatrixXcd squareC(p.bigC.cols(), p.bigC.cols());
@@ -590,13 +621,13 @@ int main(int argc, char** argv) try {
                 if (!C.allFinite()) throw std::runtime_error("Interface operator contains non-finite entries");
                 const auto layout = make_interface_layout(p);
                 // In 2D the source DOFs occupy separated row blocks, not one middleRows segment.
-                // MatrixXcd squareC(C.cols(), C.cols());
-                // for (Eigen::Index j = 0; j < C.cols(); ++j)
-                //     squareC.row(j) = C.row(layout.source_rows[j]);
+                MatrixXcd squareC(C.cols(), C.cols());
+                for (Eigen::Index j = 0; j < C.cols(); ++j)
+                    squareC.row(j) = C.row(layout.source_rows[j]);
                 const double defect = (squareC - squareC.adjoint()).norm();
                 std::cout << "Scanning radius " << M << ": " << C.rows() << " x " << C.cols()
-                          << std::endl;//<< ", matching-cell relative Hermiticity defect: "
-                          //<< (squareC.norm() > 0 ? defect / squareC.norm() : 0) << std::endl;
+                          << ", matching-cell relative Hermiticity defect: "
+                          << (squareC.norm() > 0 ? defect / squareC.norm() : 0) << std::endl;
                 const std::string filename = "interface_singular_values" + std::to_string(M) + ".csv";
                 std::ofstream out(filename);
                 out.exceptions(std::ios::failbit | std::ios::badbit);
@@ -637,9 +668,10 @@ int main(int argc, char** argv) try {
                                                    vector, p, best_z, svd.singularValues().minCoeff());
                 }
             }
+            if (export_field) run_interface_field(p, grid_points, "tessellated_interface");
             return 0;
         } catch (const std::exception& error) {
-            std::cerr << "interface-modes: " << error.what() << '\n';
+            std::cerr << mode << ": " << error.what() << '\n';
             return 1;
         }
     }

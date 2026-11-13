@@ -8,6 +8,7 @@
 #include <Eigen/Dense>
 
 #include "boundary_mesh.h"
+#include "disk.h"
 
 
 struct KPoint {
@@ -45,7 +46,7 @@ void run_one_sweep(const std::string& label,
                    const Measure& measure_at) {
     std::ofstream out(filename);
     out.setf(std::ios::scientific);
-    out.precision(10);
+    out.precision(std::numeric_limits<double>::max_digits10);
 
     std::cout << "  " << label << ": " << path.size() << " k-points, " << n_omega
               << " omega samples\n";
@@ -69,40 +70,36 @@ void run_one_sweep(const std::string& label,
 
 class Crystal {
 public:
-    Crystal(BoundaryMesh mesh, double delta, Eigen::Vector2d a1, Eigen::Vector2d a2)
-        : mesh(mesh), delta(delta), a1(a1), a2(a2) {
-        // It would be good to check that a1 and a2 create a lattice compatible with the mesh.
+    // The mesh is generated from these disks, in the same component order.
+    Crystal(std::vector<Disk> disks, double delta, Eigen::Vector2d a1, Eigen::Vector2d a2,
+            int points_per_disk = 36, double background_speed = 1.0);
 
-        MatrixXd A(2, 2);
-        A.col(0) = a1;
-        A.col(1) = a2;
-        MatrixXd B = 2 * M_PI * A.inverse().transpose().eval();
-        b1 = B.col(0);
-        b2 = B.col(1);
-    }
+    MatrixXcd multipole_matrix(cpxd omega, Vector2d alpha, int order) const;
+    MatrixXcd boundary_matrix(cpxd omega, Vector2d alpha) const;
+    int suggested_multipole_order(double omega_hi) const;
 
     void compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega,
-                                     double omega_imag, const std::string& filename, int Npath = 20, bool crystalA = true);
+                                     double omega_imag, int mode_index, double radius, int Npath = 20,
+                                     bool crystalA = true, bool scan_dirac_candidates = true);
 
     void compute_local_bands(double omega_lo, double omega_hi, int n_omega,
                              double omega_imag, const std::string& filename,
                              Vector2d center, double radius, int n_alpha);
 
-    std::vector<KPoint> make_m_gamma_k_m_path(int points_per_segment);
+    std::vector<KPoint> make_m_gamma_k_m_path(int points_per_segment) const;
 
     BoundaryMesh get_mesh() const { return mesh; }
     std::pair<Eigen::Vector2d, Eigen::Vector2d> get_lattice_vectors() const { return {a1, a2}; }
     std::pair<Eigen::Vector2d, Eigen::Vector2d> get_reciprocal_vectors() const { return {b1, b2}; }
     double get_delta() const { return delta; }
-
-    vector<double> Rs;
-    vector<Vector2d> shifts;
-    bool circles_mesh = false;
-    double v = 1.0,
-           v_b = 1.0;
+    const std::vector<Disk>& get_disks() const { return disks; }
+    double get_background_speed() const { return v; }
 
 private:
     BoundaryMesh mesh;
+    std::vector<Disk> disks;
+    int points_per_disk;
+    double v;
     double delta;
     Eigen::Vector2d a1;
     Eigen::Vector2d a2;

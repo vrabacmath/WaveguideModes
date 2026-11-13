@@ -5,6 +5,7 @@
 #include "bessel-library.hpp"
 #include "math_constants.h"
 #include "tools.h"
+#include "ewald_parameters.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,10 +16,10 @@
 namespace QFunction {
 
     struct Options {
-        int reciprocal_cutoff = 8;
+        int reciprocal_cutoff = 24;
         int spatial_cutoff = 8;
         int spatial_series_terms = 80;
-        double eta = 0.0;
+        double eta = 0.0; // 0: frequency-dependent splitting; positive: eta_physical * sqrt(area)
         double spatial_series_tolerance = 1e-15;
         double wood_tolerance = 1e-12;
     };
@@ -179,7 +180,9 @@ namespace QFunction {
             Vector2d b2 = B.col(1);
 
             const Vector2d beta = reduce_reciprocal_cell(alpha, b1, b2);
-            const double eta = ewald_eta(options) / sqrt(area);
+            const double eta = options.eta > 0.0
+                ? ewald_eta(options) / std::sqrt(area)
+                : std::sqrt(Ewald::biperiodic_epsilon(k, area));
             const int p = std::abs(n);
             const cpxd I(0.0, 1.0);
 

@@ -25,6 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
+from neumann_modes import decode_nm
+
 
 @dataclass
 class Window:
@@ -54,15 +56,33 @@ def integer(value, name):
 
 
 def load_exports(prefix):
+    parameter_path = f"{prefix}_parameters.csv"
+    with Path(parameter_path).open() as stream:
+        names = csv.DictReader(line for line in stream
+                               if line.strip() and not line.lstrip().startswith("#")).fieldnames or []
+    # Old field exports stored only angular order and always used radial root 1.
+    mode_columns = tuple(key for key in ("nm", "n_rad", "m_ang") if key in names)
+    if "nm" not in mode_columns and "m_ang" not in mode_columns:
+        raise ValueError("Missing nm mode identifier; regenerate the C++ field exports")
     try:
-        params = read_table(f"{prefix}_parameters.csv",
-                            ("window_radius", "patch_radius", "m_ang", "modes", "bent", "defect_radius",
-                             "fringe", "template_radius", "template_count"))
+        params = read_table(parameter_path,
+                            ("window_radius", "patch_radius", "modes", "bent", "defect_radius",
+                             "fringe", "template_radius", "template_count") + mode_columns)
     except ValueError as exc:
         raise ValueError(f"{exc}. Regenerate the C++ field exports with the straight endpoint templates") from exc
     if len(params) != 1:
         raise ValueError("Expected one parameter row for the exported window set")
     params = params[0]
+    for key in mode_columns:
+        params[key] = integer(params[key], key)
+    if "nm" not in params:
+        if not 0 <= params["m_ang"] <= 3:
+            raise ValueError("Legacy field exports supported only angular orders 0..3; regenerate with nm")
+        params["nm"] = 10 + params["m_ang"]
+    n_rad, m_ang = decode_nm(params["nm"])
+    if params.get("n_rad", n_rad) != n_rad or params.get("m_ang", m_ang) != m_ang:
+        raise ValueError("nm disagrees with n_rad or m_ang in the field exports")
+    params.update(n_rad=n_rad, m_ang=m_ang)
     for key in ("window_radius", "patch_radius", "m_ang", "modes", "bent", "fringe",
                 "template_radius", "template_count"):
         params[key] = integer(params[key], key)
@@ -105,7 +125,16 @@ def load_exports(prefix):
     return params, sites, windows
 
 
-def load_eigenvector(path, sites, modes):
+def load_eigenvector(path, sites, modes, nm=None):
+    if nm is not None:
+        decode_nm(nm)
+        with Path(path).open() as stream:
+            for line in stream:
+                if line.lstrip().startswith("#"):
+                    for item in line.lstrip()[1:].split(","):
+                        key, separator, value = item.partition("=")
+                        if separator and key.strip() == "nm" and integer(float(value), "nm") != nm:
+                            raise ValueError("Eigenvector nm does not match the exported field templates")
     rows = read_table(path, ("ell", "basis", "real", "imag"))
     site_index = {site["ell"]: q for q, site in enumerate(sites)}
     coefficients = np.zeros((len(sites), modes), dtype=complex)
@@ -417,7 +446,7 @@ def main():
             output = args.output or Path(f"{args.prefix}_windows")
             save_window_gallery(args.prefix, params, windows, output, args.dpi)
             return
-        coefficients = load_eigenvector(args.eigenvector, sites, params["modes"])
+        coefficients = load_eigenvector(args.eigenvector, sites, params["modes"], params["nm"])
         x, y, field, coverage = assemble_field(sites, windows, coefficients, args.spacing, args.extent)
         if not np.isfinite(field).any():
             raise ValueError("No valid field samples in this extent; inspect the window masks or grid spacing")

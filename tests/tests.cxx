@@ -1301,6 +1301,49 @@ TEST(MultipoleCrystalATest, MatchesBoundaryIntegralProjectionForTwoDiskHexCellHi
     EXPECT_LT((multipole - projected).norm() / projected.norm(), 1e-5);
 }
 
+TEST(MultipoleCrystalATest, DipoleFrequencyEwaldMatchesNodalOperators) {
+    const int L = 7, N = 48, q = 2 * (2 * L + 1);
+    const cpxd k(18.411837813406596, 1e-6);
+    const Vector2d a1(1, 0), a2(.5, std::sqrt(3.) / 2);
+    const Vector2d alpha(M_PI, -M_PI / std::sqrt(3.));
+    const std::vector<Disk> disks{
+        {.1, Vector2d(.5, std::sqrt(3.) / 6)},
+        {.1, Vector2d(.25, std::sqrt(3.) / 12)}};
+    BoundaryMesh mesh(N), other(N);
+    mesh.generate_circle(disks[0].r, disks[0].c);
+    other.generate_circle(disks[1].r, disks[1].c);
+    mesh.add_mesh(other);
+    SpectralOperators ops(mesh);
+    MatrixXcd A, S, K;
+    Multipole::crystal_A(A, L, disks, k, k, alpha, a1, a2, 1.0);
+    ops.CrystalS(S, k, alpha, a1, a2);
+    ops.CrystalKstar(K, k, alpha, a1, a2);
+    const MatrixXcd B = SpectralOperators::fourier_basis(N, L, 2);
+    const MatrixXcd Sm = -A.topRightCorner(q, q), Dm = -A.bottomRightCorner(q, q);
+    const MatrixXcd Sp = B.adjoint() * S * B / double(N);
+    const MatrixXcd Dp = B.adjoint() * (0.5 * MatrixXcd::Identity(2*N, 2*N) + K) * B / double(N);
+    EXPECT_LT((Sm - Sp).norm() / Sm.norm(), 1e-10);
+    EXPECT_LT((Dm - Dp).norm() / Dm.norm(), 1e-9);
+}
+
+TEST(QFunctionTest, HighFrequencySplittingAndCutoffStability) {
+    const cpxd k(18.411837813406596, 1e-6);
+    const Vector2d a1(1, 0), a2(.5, std::sqrt(3.) / 2);
+    const Vector2d alpha(M_PI, -M_PI / std::sqrt(3.));
+    QFunction::Options reference, alternative;
+    alternative.reciprocal_cutoff = 32;
+    alternative.spatial_cutoff = 10;
+    alternative.eta = 1.25 * std::sqrt(std::sqrt(3.) / 2) * std::abs(k) / 2;
+    for (const Vector2d d : {Vector2d::Zero().eval(), Vector2d(.25, std::sqrt(3.) / 12)}) {
+        for (int n : {-14, -2, 0, 2, 14}) {
+            const cpxd expected = QFunction::q_function(n, k, alpha, a1, a2, d, reference);
+            const cpxd actual = QFunction::q_function(n, k, alpha, a1, a2, d, alternative);
+            EXPECT_LT(std::abs(actual - expected) / std::max(1., std::abs(expected)), 1e-9)
+                << "order=" << n << ", d=" << d.transpose();
+        }
+    }
+}
+
 TEST(MultipoleDefectATest, LocalMapsMatchEffectiveSourceFormula) {
     const int order_cutoff = 3;
     const double radius = 0.22;
@@ -1400,7 +1443,7 @@ TEST(CapacitanceMatrix, SingleDiskDipoleMatchesAnalytic) {
 TEST(BentWaveguidePatch, EndpointDefectsAreScreenersNotMatrixSites) {
     const int n_defect = 3;
     const int fringe = 1;
-    const auto p = workflows::build_bent_patch(0.35, 0.455, 1, n_defect, 2, 0, fringe, 16,
+    const auto p = workflows::build_bent_patch(0.35, 0.455, 11, n_defect, 2, 0, fringe, 16,
                                                /*v=*/1.0, /*v_b=*/1.0, /*v_bd=*/1.0,
                                                /*verbose=*/false);
 
@@ -1507,7 +1550,7 @@ TEST(TessellatedPatch, ZeroRadiusAndInvalidTemplates) {
 }
 
 TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
-    const auto tp = workflows::build_tessellated_patch(1, 3, 1, true, 0.35, 0.455, 1,
+    const auto tp = workflows::build_tessellated_patch(1, 3, 1, true, 0.35, 0.455, 11,
                                                        1, 64, 1.0, 1.0, 1.0, 30, false);
     ASSERT_EQ(tp.meshes.size(), 7u);  // full mesh half-width 2, plus two straight templates
     ASSERT_EQ(tp.bigC.rows(), 18);
@@ -1579,7 +1622,7 @@ TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
     }
     // Use the same boundary sampling for the modal density reconstruction and nodal reference.
     // The two discretizations agree up to quadrature and Fourier truncation errors.
-    const auto direct = workflows::build_bent_patch(0.35, 0.455, 1, 2, 2, 0, 1, tp.N,
+    const auto direct = workflows::build_bent_patch(0.35, 0.455, 11, 2, 2, 0, 1, tp.N,
                                                     1.0, 1.0, 1.0, false);
     const int corner = tp.template_index(0);
     const MatrixXcd B = SpectralOperators::fourier_basis(direct.N, tp.Nmultipole, direct.disks.size());
@@ -1621,7 +1664,7 @@ TEST(TessellatedPatch, LocalPathOrderingAndCornerColumnMatchDirectSolve) {
 }
 
 TEST(TessellatedPatch, StraightGuideTemplatesAreTranslationInvariant) {
-    const auto tp = workflows::build_tessellated_patch(1, 2, 0, false, 0.35, 0.455, 0,
+    const auto tp = workflows::build_tessellated_patch(1, 2, 0, false, 0.35, 0.455, 10,
                                                        0, 32, 1.0, 1.0, 1.0, 10, false);
     const MatrixXcd B = SpectralOperators::fourier_basis(tp.N, tp.Nmultipole, tp.disks[0].size());
     ASSERT_EQ(tp.meshes.size(), 5u);

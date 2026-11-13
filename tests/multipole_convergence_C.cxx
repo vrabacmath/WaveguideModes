@@ -59,12 +59,12 @@ int main(int argc, char** argv) try {
     const int fringe = integer_arg(8, 0);
     const int colbrook = integer_arg(9, window_radius);
     const double v = 1.0;
-    const double z_min = 10.0, z_max = 20.0; // for this frequency!!!
+    const double z_min = 0.8, z_max = 1.0; // for this frequency!!!
     const LatticeVectors up{Vector2d(1, 0), Vector2d(0.5, std::sqrt(3.0) / 2)};
     const LatticeVectors down{Vector2d(1, 0), Vector2d(0.5, -std::sqrt(3.0) / 2)};
     const std::vector<Disk> disks_up{
-        {0.1, Vector2d(0.5, std::sqrt(3.0) / 6), 1.0},
-        {0.1, Vector2d(0.25, std::sqrt(3.0) / 12), 1.0}
+        {0.1001, Vector2d(0.5, std::sqrt(3.0) / 6), 0.1},
+        {0.09999, Vector2d(1.0, std::sqrt(3.0) / 3), 0.1}
     };
     auto disks_down = disks_up;
     for (auto& d : disks_down) d.c.y() = -d.c.y();

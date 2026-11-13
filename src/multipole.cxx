@@ -58,6 +58,14 @@ void Multipole::crystal_A(MatrixXcd &A_matrix, int N, double R, cpxd k, cpxd k_b
 }
 
 void Multipole::crystal_A(MatrixXcd &A_matrix, int N, const std::vector<Disk>& disks, cpxd k, cpxd k_b, Vector2d alpha, Vector2d a1, Vector2d a2, double delta) {
+    crystal_A(A_matrix, N, disks, k, std::vector<cpxd>(disks.size(), k_b), alpha, a1, a2, delta);
+}
+
+void Multipole::crystal_A(MatrixXcd &A_matrix, int N, const std::vector<Disk>& disks, cpxd k,
+                         const std::vector<cpxd>& interior_wavenumbers,
+                         Vector2d alpha, Vector2d a1, Vector2d a2, double delta) {
+    if (N < 0 || disks.empty() || interior_wavenumbers.size() != disks.size())
+        throw std::invalid_argument("Require nonnegative multipole order and one interior wavenumber per disk");
     int M = 2 * N + 1;
     int NR = disks.size();
 
@@ -72,6 +80,7 @@ void Multipole::crystal_A(MatrixXcd &A_matrix, int N, const std::vector<Disk>& d
     };
 
     for (int ri = 0; ri < NR; ri++) {
+        const cpxd k_b = interior_wavenumbers[ri];
         for (int rj = 0; rj < NR; rj++) {
             double R_i = disks[ri].r;
             double R_j = disks[rj].r;

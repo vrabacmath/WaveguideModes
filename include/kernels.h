@@ -6,6 +6,7 @@
 #define SUBWAVELENGTHRESONATORS_KERNELS_H
 
 #include "Eigen/Dense"
+#include "ewald_parameters.h"
 #include <concepts>
 #include <complex>
 #include <cmath>
@@ -762,7 +763,7 @@ namespace Kernels {
         A.col(1) = a2;
         double area = abs(a1.x() * a2.y() - a1.y() * a2.x());
         if (epsilon < 1e-12) {
-            epsilon = M_PI / area;
+            epsilon = Ewald::biperiodic_epsilon(k, area);
         }
 
         // reciprocal lattice vectors
@@ -823,7 +824,7 @@ namespace Kernels {
         A.col(1) = a2;
         double area = abs(a1.x() * a2.y() - a1.y() * a2.x());
         if (epsilon < 1e-12) {
-            epsilon = M_PI / area;
+            epsilon = Ewald::biperiodic_epsilon(k, area);
         }
 
         // reciprocal lattice vectors

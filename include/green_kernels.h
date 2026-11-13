@@ -391,7 +391,7 @@ struct BiperiodicKernel {
           alpha(alpha_value),
           a1(a1_value),
           a2(a2_value),
-          epsilon(M_PI / std::abs(a1.x() * a2.y() - a1.y() * a2.x())),
+          epsilon(Ewald::biperiodic_epsilon(k_value, std::abs(a1.x() * a2.y() - a1.y() * a2.x()))),
           ewald_constant(0.0) {
         const cpxd ratio = k * k / (4.0 * epsilon);
         for (int q = 1; q <= 20; q++) {
@@ -401,7 +401,7 @@ struct BiperiodicKernel {
 
     [[nodiscard]] cpxd single_layer_value(const Eigen::Vector2d& x,
                                           const Eigen::Vector2d& y) const {
-        return Kernels::helmholtz_2D_biperiodic(k, alpha, x, y, a1, a2);
+        return Kernels::helmholtz_2D_biperiodic(k, alpha, x, y, a1, a2, epsilon);
     }
 
     [[nodiscard]] cpxd single_layer_log_coefficient(const Eigen::Vector2d&,
@@ -416,7 +416,7 @@ struct BiperiodicKernel {
 
     [[nodiscard]] cpxd single_layer_self_regular(const Vertex& vertex) const {
         return vertex.sigma *
-               (Kernels::helmholtz_2D_biperiodic(k, alpha, vertex.point, vertex.point, a1, a2) +
+               (Kernels::helmholtz_2D_biperiodic(k, alpha, vertex.point, vertex.point, a1, a2, epsilon) +
                 0.25 * M_1_PI *
                 (-ewald_constant + EULER_GAMMA +
                  std::log(epsilon * vertex.tnorm * vertex.tnorm)));
@@ -425,7 +425,7 @@ struct BiperiodicKernel {
     [[nodiscard]] cpxd target_normal_value(const Eigen::Vector2d& x,
                                            const Eigen::Vector2d& y,
                                            const Eigen::Vector2d& normal) const {
-        return normal_dot(Kernels::grad_helmholtz_2D_biperiodic(k, alpha, x, y, a1, a2), normal);
+        return normal_dot(Kernels::grad_helmholtz_2D_biperiodic(k, alpha, x, y, a1, a2, epsilon), normal);
     }
 
     [[nodiscard]] cpxd target_normal_log_coefficient(const Eigen::Vector2d& x,
@@ -440,14 +440,14 @@ struct BiperiodicKernel {
         return vertex.sigma *
                (0.25 * M_1_PI * vertex.curvature +
                 normal_dot(Kernels::grad_helmholtz_2D_biperiodic(k, alpha, vertex.point,
-                                                                  vertex.point, a1, a2),
+                                                                  vertex.point, a1, a2, epsilon),
                            vertex.normal));
     }
 
     [[nodiscard]] cpxd source_normal_value(const Eigen::Vector2d& x,
                                            const Eigen::Vector2d& y,
                                            const Eigen::Vector2d& normal) const {
-        return -normal_dot(Kernels::grad_helmholtz_2D_biperiodic(k, alpha, x, y, a1, a2), normal);
+        return -normal_dot(Kernels::grad_helmholtz_2D_biperiodic(k, alpha, x, y, a1, a2, epsilon), normal);
     }
 
     [[nodiscard]] cpxd source_normal_log_coefficient(const Eigen::Vector2d& x,
@@ -462,7 +462,7 @@ struct BiperiodicKernel {
         return vertex.sigma *
                (0.25 * M_1_PI * vertex.curvature -
                 normal_dot(Kernels::grad_helmholtz_2D_biperiodic(k, alpha, vertex.point,
-                                                                  vertex.point, a1, a2),
+                                                                  vertex.point, a1, a2, epsilon),
                            vertex.normal));
     }
 };

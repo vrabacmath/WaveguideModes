@@ -6,22 +6,75 @@
 using namespace Eigen;
 using namespace std;
 
-namespace {
-
-std::vector<Disk> make_disks(const std::vector<double>& radii,
-                             const std::vector<Vector2d>& centers) {
-    assert(radii.size() == centers.size() && "The number of radii and centers must be the same.");
-    std::vector<Disk> disks;
-    disks.reserve(radii.size());
-    for (size_t i = 0; i < radii.size(); ++i) {
-        disks.push_back({radii[i], centers[i]});
+Crystal::Crystal(std::vector<Disk> disk_data, double contrast, Vector2d lattice_a1,
+                 Vector2d lattice_a2, int point_count, double background_speed)
+    : mesh(std::max(point_count, 8)), disks(std::move(disk_data)), points_per_disk(point_count),
+      v(background_speed), delta(contrast), a1(lattice_a1), a2(lattice_a2) {
+    if (disks.empty() || point_count < 8 || !std::isfinite(v) || v <= 0 ||
+        !std::isfinite(delta) || delta < 0 || !a1.allFinite() || !a2.allFinite())
+        throw std::invalid_argument("Crystal requires disks, >=8 boundary points, positive speed, "
+                                    "nonnegative contrast and finite lattice vectors");
+    Matrix2d A;
+    A.col(0) = a1;
+    A.col(1) = a2;
+    if (std::abs(A.determinant()) <= std::numeric_limits<double>::epsilon() * a1.norm() * a2.norm())
+        throw std::invalid_argument("Crystal lattice vectors must be independent");
+    const Matrix2d B = 2 * M_PI * A.inverse().transpose();
+    b1 = B.col(0);
+    b2 = B.col(1);
+    for (std::size_t i = 0; i < disks.size(); ++i) {
+        const auto& disk = disks[i];
+        if (!disk.c.allFinite() || !std::isfinite(disk.r) || disk.r <= 0 ||
+            !std::isfinite(disk.v_b) || disk.v_b <= 0)
+            throw std::invalid_argument("Every crystal disk needs a finite center and positive radius/speed");
+        BoundaryMesh component(point_count);
+        component.generate_circle(disk.r, disk.c);
+        if (i == 0) mesh = component;
+        else mesh.add_mesh(component);
     }
-    return disks;
 }
 
-} // namespace
+int Crystal::suggested_multipole_order(double omega_hi) const {
+    if (!std::isfinite(omega_hi) || omega_hi <= 0)
+        throw std::invalid_argument("Multipole cutoff requires a positive finite upper frequency");
+    double max_argument = 0;
+    for (const auto& disk : disks)
+        max_argument = std::max(max_argument, omega_hi * disk.r / std::min(v, disk.v_b));
+    return std::max(7, static_cast<int>(std::ceil(max_argument)) + 5);
+}
 
-std::vector<KPoint> Crystal::make_m_gamma_k_m_path(int points_per_segment) {
+MatrixXcd Crystal::multipole_matrix(cpxd omega, Vector2d alpha, int order) const {
+    std::vector<cpxd> interior_wavenumbers;
+    for (const auto& disk : disks) interior_wavenumbers.push_back(omega / disk.v_b);
+    MatrixXcd A;
+    Multipole::crystal_A(A, order, disks, omega / v, interior_wavenumbers, alpha, a1, a2, delta);
+    return A;
+}
+
+MatrixXcd Crystal::boundary_matrix(cpxd omega, Vector2d alpha) const {
+    const int n = mesh.get_num_segments();
+    SpectralOperators ops(mesh);
+    MatrixXcd S, K;
+    ops.CrystalS(S, omega / v, alpha, a1, a2);
+    ops.CrystalKstar(K, omega / v, alpha, a1, a2);
+    MatrixXcd A = MatrixXcd::Zero(2 * n, 2 * n);
+    A.topRightCorner(n, n) = -S;
+    A.bottomRightCorner(n, n) = -delta * (0.5 * MatrixXcd::Identity(n, n) + K);
+    for (std::size_t i = 0; i < disks.size(); ++i) {
+        BoundaryMesh component(points_per_disk);
+        component.generate_circle(disks[i].r, disks[i].c);
+        SpectralOperators interior(component);
+        interior.S(S, omega / disks[i].v_b);
+        interior.Kstar(K, omega / disks[i].v_b);
+        const int start = mesh.get_start_index(i);
+        A.block(start, start, points_per_disk, points_per_disk) = S;
+        A.block(n + start, start, points_per_disk, points_per_disk) =
+            -0.5 * MatrixXcd::Identity(points_per_disk, points_per_disk) + K;
+    }
+    return A;
+}
+
+std::vector<KPoint> Crystal::make_m_gamma_k_m_path(int points_per_segment) const {
     points_per_segment = std::max(points_per_segment, 2);
     std::vector<KPoint> path;
     path.reserve(3 * (points_per_segment - 1) + 1);
@@ -52,7 +105,7 @@ std::vector<KPoint> Crystal::make_m_gamma_k_m_path(int points_per_segment) {
 
 
 void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int n_omega, double omega_imag,
-                                        const std::string& filename, int Npath, bool crystalA) {
+                                        int mode_index, double radius, int Npath, bool crystalA, bool scan_dirac_candidates) {
     n_omega = std::max(n_omega, 3);
     if (!(omega_lo < omega_hi)) std::swap(omega_lo, omega_hi);
 
@@ -63,37 +116,24 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
                 << ", " << n_omega << " omega samples in [" << omega_lo << "," << omega_hi
                 << "]\n";
 
-    // int n_multipole = 7;
-    double Rs_max = 0.0;
-    for (const auto& R : Rs) {
-        Rs_max = std::max(Rs_max, R);
-    }
-
-    double v_lo = std::min(v, v_b);
-    int n_multipole = std::max(7, static_cast<int>(std::ceil(omega_hi * Rs_max / v_lo)) + 5);
-    assert(circles_mesh && "multipole crystal A only works for circular disks!");
+    const int n_multipole = suggested_multipole_order(omega_hi);
     std::cout << "Using " << n_multipole << " multipole terms.\n";
 
+    std::string filename = "_m_gamma_k_m_hex" + std::to_string(mode_index) + ".csv";
+
     if (crystalA) {
-        SpectralOperators ops(mesh);
-        run_one_sweep("CrystalA", filename, make_m_gamma_k_m_path(Npath), omega_lo, omega_hi, n_omega,
+        run_one_sweep("CrystalA", "crystalA" + filename, make_m_gamma_k_m_path(Npath), omega_lo, omega_hi, n_omega,
                         [&](double omega, double alpha_x, double alpha_y) {
-                            MatrixXcd A;
-                            const cpxd omega_c(omega, omega_imag);
-                            ops.CrystalA(A, omega_c / v, omega_c / v_b, Vector2d(alpha_x, alpha_y),
-                                        a1, a2, delta);
-                            return measure_matrix(A);
+                            return measure_matrix(boundary_matrix(cpxd(omega, omega_imag),
+                                                                  Vector2d(alpha_x, alpha_y)));
                         });
     }
 
     vector<Vector3d> candidates;
-    const auto disks = make_disks(Rs, shifts);
-    bool collect_candidates = true;
+    bool collect_candidates = scan_dirac_candidates;
     auto meas_mult_A = [&](double omega, double alpha_x, double alpha_y) {
-        MatrixXcd A;
-        const cpxd omega_c(omega, omega_imag);
-        Multipole::crystal_A(A, n_multipole, disks, omega_c / v, omega_c / v_b,
-                            Vector2d(alpha_x, alpha_y), a1, a2, delta);
+        const MatrixXcd A = multipole_matrix(cpxd(omega, omega_imag),
+                                             Vector2d(alpha_x, alpha_y), n_multipole);
 
         if (collect_candidates) {
             Vector3d last_3_singular_values = last_3_sv(A);
@@ -110,17 +150,21 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
         return measure_matrix(A);
     };
 
-    run_one_sweep("multipoleA", "multipoleA_m_gamma_k_m_hex.csv", make_m_gamma_k_m_path(Npath), omega_lo, omega_hi, n_omega,
+    run_one_sweep("multipoleA", "multipoleA" + filename, make_m_gamma_k_m_path(Npath), omega_lo, omega_hi, n_omega,
                     meas_mult_A);
 
     // The local scan must not modify the candidate vector being iterated.
     collect_candidates = false;
-    const double radius = 0.15;
+    // const double radius = 0.15 * pow(10., -(mode_index % 10));
     const int Nalpha = 21; // Odd count includes the candidate itself.
     for (size_t candidate_i = 0; candidate_i < candidates.size(); ++candidate_i) {
         const Vector3d alpha = candidates[candidate_i];
         std::cout << "Candidate Dirac point at omega=" << alpha.z()
                   << ", alpha=(" << alpha.x() << "," << alpha.y() << ")\n";
+        if (abs(alpha.x() - 4.1888) > 1e-3 || abs(alpha.y() - 0.0) > 1e-3) {
+            std::cout << "  Skipping candidate that is not at the expected K point.\n";
+            continue;
+        }
         const std::string candidate_filename = "multipoleA_dirac_candidate_omega_"
             + std::to_string(alpha.z()) + "_" + std::to_string(candidate_i) + ".csv";
         std::ofstream out(candidate_filename);
@@ -140,10 +184,11 @@ void Crystal::compute_high_symmetry_bands(double omega_lo, double omega_hi, int 
             }
         }
         cout << "Wrote Dirac candidate data to " << candidate_filename << "\n";
+        break;
     }
 
-    std::cout << "[wrote] " << filename
-                << " (omega,sigma_min(log10),log_abs_det)\n";
+    std::cout << "[wrote] multipoleA" << filename
+              << " (s,omega,sigma_min,log_abs_det,alpha_x,alpha_y)\n";
 }
 
 void Crystal::compute_local_bands(double omega_lo, double omega_hi, int n_omega,
@@ -155,12 +200,7 @@ void Crystal::compute_local_bands(double omega_lo, double omega_hi, int n_omega,
         throw std::invalid_argument("Local scan needs 0 < omega_lo < omega_hi, at least 3 samples per axis, "
                                     "positive finite radius and nonnegative finite omega_imag");
     }
-    if (!circles_mesh || Rs.empty() || !(v > 0 && v_b > 0)) {
-        throw std::invalid_argument("Local multipole scan needs circular resonators and positive speeds");
-    }
-    const double max_radius = *std::max_element(Rs.begin(), Rs.end());
-    const auto disks = make_disks(Rs, shifts);
-    const int n_multipole = std::max(7, static_cast<int>(std::ceil(omega_hi * max_radius / std::min(v, v_b))) + 5);
+    const int n_multipole = suggested_multipole_order(omega_hi);
     std::ofstream out(filename);
     if (!out) throw std::runtime_error("Cannot open " + filename);
     out.precision(std::numeric_limits<double>::max_digits10);
@@ -180,9 +220,7 @@ void Crystal::compute_local_bands(double omega_lo, double omega_hi, int n_omega,
             for (int iw = 0; iw < n_omega; ++iw) {
                 const double w = omega_lo + (omega_hi - omega_lo) * iw / (n_omega - 1);
                 const cpxd wc(w, omega_imag);
-                MatrixXcd A;
-                Multipole::crystal_A(A, n_multipole, disks, wc / v, wc / v_b,
-                                    Vector2d(x, y), a1, a2, get_delta());
+                const MatrixXcd A = multipole_matrix(wc, Vector2d(x, y), n_multipole);
                 values[static_cast<size_t>(iy) * n_omega + iw] = last_3_sv(A);
             }
         }

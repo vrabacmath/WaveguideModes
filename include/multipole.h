@@ -42,6 +42,10 @@ public:
     static void crystal_A(MatrixXcd &A_matrix, int N, const std::vector<Disk>& disks,
                           cpxd k, cpxd k_b,
                           Vector2d alpha, Vector2d a1, Vector2d a2, double delta);
+    // One interior wavenumber per disk; exterior k is common to the cell.
+    static void crystal_A(MatrixXcd &A_matrix, int N, const std::vector<Disk>& disks,
+                          cpxd k, const std::vector<cpxd>& interior_wavenumbers,
+                          Vector2d alpha, Vector2d a1, Vector2d a2, double delta);
 
     // Free-space circle operators, with mode-major ordering as in crystal_A.
     static void S(MatrixXcd &S_matrix, int N, const std::vector<Disk>& disks, cpxd k);

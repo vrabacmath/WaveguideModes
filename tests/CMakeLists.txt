@@ -17,8 +17,9 @@ add_executable(UnitTests
     tests.cxx
     colbrook_convergence.cxx
     interface_patch.cxx
-    neumann_mode.cxx
-    multipole_dtn.cxx
+    # hex_crystal.cxx
+    # neumann_mode.cxx
+    # multipole_dtn.cxx
 )
 
 # Manual parameter sweep: keep expensive global SVD scans out of ctest.

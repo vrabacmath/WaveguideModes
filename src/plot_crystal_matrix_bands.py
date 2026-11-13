@@ -7,6 +7,8 @@ Or from build:
 """
 
 from pathlib import Path
+from io import StringIO
+import warnings
 
 from neumann_modes import band_nm
 
@@ -60,7 +62,18 @@ def load_csv(relative_path, min_columns):
     if not path.exists() or path.stat().st_size == 0:
         raise FileNotFoundError(f"{relative_path} is missing or empty")
 
-    data = np.loadtxt(path, delimiter=",")
+    # Read one snapshot: a running sweep can leave its last row half-written.
+    contents = path.read_text()
+    if contents and not contents.endswith("\n"):
+        contents = contents.rpartition("\n")[0]
+        warnings.warn(f"{path}: ignoring the unfinished final row; the sweep may still be writing",
+                      stacklevel=2)
+    if not contents.strip():
+        raise ValueError(f"{path}: no complete rows yet; wait for the sweep to write more data")
+    try:
+        data = np.loadtxt(StringIO(contents), delimiter=",")
+    except ValueError as exc:
+        raise ValueError(f"{path}: malformed CSV among completed rows: {exc}") from exc
     if data.ndim == 1:
         data = data.reshape(1, -1)
     if data.shape[1] < min_columns:
@@ -160,7 +173,7 @@ def extract_bands(filename, sigma_threshold=SIGMA_THRESHOLD):
     return np.array(bs), np.array(bw), np.array(bsig), (omega.min(), omega.max())
 
 
-def plot_capacitance_overlay(ax, omega_lo, omega_hi):
+def plot_capacitance_overlay(ax, omega_lo, omega_hi, color_offset=0):
     """Use the same (nm, path arclength, real frequency) columns as plot.py."""
     try:
         data = load_csv(CAPACITANCE_FILE, 7)
@@ -175,39 +188,51 @@ def plot_capacitance_overlay(ax, omega_lo, omega_hi):
               "check that both CSVs use the same radii and speeds.")
         return
 
+    colors = ["red", "orange", "gold", "green", "blue", "purple"]
+
     visible[:, 0] = [band_nm(value) for value in visible[:, 0]]
+    i = 0
     for nm in np.unique(visible[:, 0].astype(int)):
         rows = visible[visible[:, 0] == nm]
         ax.scatter(rows[:, 1], rows[:, 2], s=30, marker="o", facecolors="none",
-                   edgecolors="tab:red", linewidths=0.9, zorder=3,
+                   edgecolors=colors[(i + color_offset) % len(colors)], linewidths=0.9, zorder=3,
                    label=rf"Capacitance ($nm={nm}$)")
+        print(f"Min and max values for nm={nm}: {rows[:, 2].min():.10f}, {rows[:, 2].max():.10f}")
+        i = (i + 1) % len(colors)
 
 
 def plot_band_lines():
     """Overlay capacitance predictions on the color-coded crystal band minima."""
-    plots = [
-        # ("build/crystal_hex_bands.csv", "CrystalA"),
-        ("build/multipoleA_m_gamma_k_m_hex.csv", "multipoleA"),
-    ]
+    # plots = [
+    #     # ("build/crystal_hex_bands.csv", "CrystalA"),
+    #     ("build/multipoleA_m_gamma_k_m_hex.csv", "multipoleA"),
+    # ]
+    plots = []
+    for i in range(20,26):
+        plots.append(("build/multipoleA_m_gamma_k_m_hex" + str(i) + ".csv", f"Crystal{i}"))
 
-    fig, axes = plt.subplots(1, len(plots), figsize=(5.8 * len(plots), 4.8),
-                             sharey=True, squeeze=False)
+    fig, axes = plt.subplots(2, 3, figsize=(5.8 * len(plots), 4.8),
+                             sharey=False)#, squeeze=False)
     axes = axes.ravel()
     sc = None
-    for ax, (filename, title) in zip(axes, plots):
+    for plot_index, (ax, (filename, title)) in enumerate(zip(axes, plots)):
         ticks, tick_labels = high_symmetry_ticks(load_csv(filename, 6)[:, 0], middle_label_for(filename))
         bs, bw, bsig, (omega_lo, omega_hi) = extract_bands(filename)
         if bs.size:
             sc = ax.scatter(bs, bw, c=np.log10(np.maximum(bsig, 1e-12)), s=12, cmap="viridis",
                             vmax=np.log10(SIGMA_THRESHOLD), zorder=1,
                             label=f"{title} minima")
+        omega_lo = 0.9 * omega_lo
+        omega_hi = 1.1 * omega_hi
         if OVERLAY_CAPACITANCE:
-            plot_capacitance_overlay(ax, omega_lo, omega_hi)
+            plot_capacitance_overlay(ax, omega_lo, omega_hi, color_offset=plot_index)
         # mark_eigenvalue_lines(ax, omega_lo, omega_hi)  # green/red/gold, thick and in front
         ax.set_title(title)
         ax.set_xlim(ticks[0], ticks[-1])
         ax.set_ylim(omega_lo, omega_hi)
         ax.set_xlabel("Bloch path")
+        ax.set_ylabel(r"Frequency $\omega$")
+        ax.ticklabel_format(axis="y")#, style="plain")#, useOffset=False)
         ax.set_xticks(ticks)
         ax.set_xticklabels(tick_labels)
         ax.grid(True, alpha=0.22)
@@ -218,7 +243,6 @@ def plot_band_lines():
     # plt.scatter([ticks[2], ticks[2], ticks[2], ticks[2], ticks[2], ticks[2]], [17.1429, 10.0752, 12.2306, 14.9624, 16.391, 18.8221], color = 'red', label="possible Dirac points")
     # plt.legend(loc="center", fontsize=7)
 
-    axes[0].set_ylabel(r"Frequency $\omega$")
     if sc is not None:
         fig.colorbar(sc, ax=axes, label=r"$\log_{10}\sigma_{\min}$")
     subtitle = (r"$a1=(1,  0)$, "
@@ -228,7 +252,7 @@ def plot_band_lines():
                 r"$M=(\pi,-\frac{\sqrt{3}}{3}\pi)$, "
                 r"$\Gamma=(0,0)$, "
                 r"$K=(\frac{4\pi}{3},0)$")
-    fig.suptitle(f"Bulk bands along M-Gamma-K-M, 2 resonators R = 0.12 \n{subtitle} ", size=8)#(R={CRYSTAL_RADIUS}, band minima)\n{subtitle}")
+    fig.suptitle(f"Bulk bands along M-Gamma-K-M, 2 resonators\n{subtitle}", size=8)
     out = resolve_data_path("crystal_matrix_band_lines.pdf")
     fig.savefig(out, dpi=250, bbox_inches="tight")
     print(f"[wrote] {out}")

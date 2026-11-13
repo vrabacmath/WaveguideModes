@@ -42,6 +42,12 @@ class TessellatedFieldTests(unittest.TestCase):
         self.csv.write_text("ell,basis,real,imag\n0,0,0,2\n")
         np.testing.assert_array_equal(load_eigenvector(self.csv, [{"ell": 0}], 1), [[2j]])
 
+    def test_eigenvector_radial_branch_must_match_templates(self):
+        self.csv.write_text("# nm=21, n_rad=2, m_ang=1\nell,basis,real,imag\n0,0,1,0\n0,1,0,1\n")
+        np.testing.assert_array_equal(load_eigenvector(self.csv, [{"ell": 0}], 2, 21), [[1, 1j]])
+        with self.assertRaisesRegex(ValueError, "nm does not match"):
+            load_eigenvector(self.csv, [{"ell": 0}], 2, 11)
+
     def test_export_layout_separates_window_and_template_radii(self):
         prefix = Path(self.temp.name) / "basis"
         Path(f"{prefix}_parameters.csv").write_text(
@@ -68,6 +74,36 @@ class TessellatedFieldTests(unittest.TestCase):
             "window_radius,patch_radius,m_ang,modes,bent,defect_radius\n1,5,0,1,1,0.455\n")
         with self.assertRaisesRegex(ValueError, "Regenerate.*straight endpoint"):
             load_exports(prefix)
+
+    def test_encoded_modes_decode_for_field_reconstruction(self):
+        prefix = Path(self.temp.name) / "encoded"
+        for nm in (10, 15, 21):
+            with self.subTest(nm=nm):
+                n, m = divmod(nm, 10)
+                modes = 1 if m == 0 else 2
+                Path(f"{prefix}_parameters.csv").write_text(
+                    "window_radius,patch_radius,nm,n_rad,m_ang,modes,bent,defect_radius,fringe,template_radius,template_count\n"
+                    f"0,0,{nm},{n},{m},{modes},0,0.15,0,1,3\n")
+                Path(f"{prefix}_sites.csv").write_text(
+                    "ell,x,y,window_index,coefficient_start\n0,0,0,1,0\n")
+                for k in range(3):
+                    np.savetxt(f"{prefix}_patch_{k}_axis.csv", self.axis, delimiter=",")
+                    for basis in range(modes):
+                        for part in ("real", "imag"):
+                            np.savetxt(f"{prefix}_patch_{k}_basis_{basis}_{part}.csv",
+                                       np.ones((3, 3)), delimiter=",")
+                params, _, windows = load_exports(prefix)
+                self.assertEqual((params["nm"], params["n_rad"], params["m_ang"]), (nm, n, m))
+                self.assertEqual(windows[1].basis.shape[0], modes)
+
+    def test_inconsistent_mode_metadata_is_rejected(self):
+        prefix = Path(self.temp.name) / "inconsistent"
+        for nm, n, m in ((21, 1, 1), (21, 2, 21), (1, 1, 1)):
+            Path(f"{prefix}_parameters.csv").write_text(
+                "window_radius,patch_radius,nm,n_rad,m_ang,modes,bent,defect_radius,fringe,template_radius,template_count\n"
+                f"0,0,{nm},{n},{m},2,0,0.15,0,1,3\n")
+            with self.assertRaisesRegex(ValueError, "nm"):
+                load_exports(prefix)
 
     def test_translation_and_xy_orientation(self):
         xx, yy = np.meshgrid(self.axis, self.axis)
